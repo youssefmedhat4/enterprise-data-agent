@@ -1,0 +1,14 @@
+name: payroll_metric_base
+statement: |
+  SELECT
+    payroll.id AS payroll_id,
+    departments.name AS department,
+    payroll.status AS payroll_status,
+    employees.currency AS currency,
+    payroll.period_start AS payroll_period,
+    payroll.base_salary + payroll.bonus - payroll.deductions AS net_payroll_amount
+  FROM payroll
+  JOIN employees ON payroll.employee_id = employees.id
+  JOIN departments ON employees.department_id = departments.id
+properties:
+  description: Reviewed employee-period grain used by governed payroll metrics.

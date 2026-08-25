@@ -1,0 +1,241 @@
+[
+  {
+    "id": "metric_active_headcount_total",
+    "description": "Plain active headcount.",
+    "query": {"metric": "active_headcount"},
+    "expected_rows": [{"active_headcount": 10}]
+  },
+  {
+    "id": "metric_active_headcount_department",
+    "description": "Active headcount by department.",
+    "query": {"metric": "active_headcount", "dimensions": ["department"]},
+    "expected_rows": [
+      {"department": "Engineering", "active_headcount": 4},
+      {"department": "Finance", "active_headcount": 2},
+      {"department": "People Operations", "active_headcount": 1},
+      {"department": "Sales", "active_headcount": 3}
+    ]
+  },
+  {
+    "id": "metric_active_headcount_department_filter",
+    "description": "Dimension filter on active headcount.",
+    "query": {
+      "metric": "active_headcount",
+      "dimensions": ["department"],
+      "filters": [
+        {"dimension": "department", "operator": "eq", "values": ["Engineering"]}
+      ]
+    },
+    "expected_rows": [{"department": "Engineering", "active_headcount": 4}]
+  },
+  {
+    "id": "metric_annual_base_payroll_total",
+    "description": "Plain annual base payroll.",
+    "query": {"metric": "annual_base_payroll"},
+    "expected_rows": [{"annual_base_payroll": 1565000}]
+  },
+  {
+    "id": "metric_annual_base_payroll_department",
+    "description": "Annual base payroll by department.",
+    "query": {"metric": "annual_base_payroll", "dimensions": ["department"]},
+    "expected_rows": [
+      {"department": "Engineering", "annual_base_payroll": 710000},
+      {"department": "Finance", "annual_base_payroll": 255000},
+      {"department": "People Operations", "annual_base_payroll": 225000},
+      {"department": "Sales", "annual_base_payroll": 375000}
+    ]
+  },
+  {
+    "id": "metric_net_payroll_total",
+    "description": "Plain net payroll.",
+    "query": {"metric": "net_payroll"},
+    "expected_rows": [{"net_payroll": 224250}]
+  },
+  {
+    "id": "metric_net_payroll_department",
+    "description": "Net payroll by department.",
+    "query": {"metric": "net_payroll", "dimensions": ["department"]},
+    "expected_rows": [
+      {"department": "Engineering", "net_payroll": 91500},
+      {"department": "Finance", "net_payroll": 38250},
+      {"department": "People Operations", "net_payroll": 33750},
+      {"department": "Sales", "net_payroll": 60750}
+    ]
+  },
+  {
+    "id": "metric_net_payroll_month",
+    "description": "Net payroll grouped by accounting month.",
+    "query": {
+      "metric": "net_payroll",
+      "time_dimension": "payroll_period",
+      "time_grain": "month"
+    },
+    "expected_rows": [
+      {"payroll_period": "2025-01-01", "net_payroll": 109875},
+      {"payroll_period": "2025-02-01", "net_payroll": 114375}
+    ]
+  },
+  {
+    "id": "metric_invoice_amount_total",
+    "description": "Plain invoice amount.",
+    "query": {"metric": "invoice_amount"},
+    "expected_rows": [{"invoice_amount": 205000}]
+  },
+  {
+    "id": "metric_invoice_amount_customer",
+    "description": "Invoice amount by customer.",
+    "query": {"metric": "invoice_amount", "dimensions": ["customer"]},
+    "expected_rows": [
+      {"customer": "Gulf Logistics", "invoice_amount": 110000},
+      {"customer": "Nile Retail Group", "invoice_amount": 95000}
+    ]
+  },
+  {
+    "id": "metric_invoice_amount_customer_status",
+    "description": "Invoice amount with two dimensions.",
+    "query": {
+      "metric": "invoice_amount",
+      "dimensions": ["customer", "invoice_status"]
+    },
+    "expected_rows": [
+      {"customer": "Gulf Logistics", "invoice_status": "issued", "invoice_amount": 110000},
+      {"customer": "Nile Retail Group", "invoice_status": "paid", "invoice_amount": 95000}
+    ]
+  },
+  {
+    "id": "metric_invoice_amount_month",
+    "description": "Invoice amount grouped by issue month.",
+    "query": {
+      "metric": "invoice_amount",
+      "time_dimension": "invoice_issued",
+      "time_grain": "month",
+      "date_range": ["2025-01-01", "2025-01-31"]
+    },
+    "expected_rows": [
+      {"invoice_issued": "2025-01-01", "invoice_amount": 95000}
+    ]
+  },
+  {
+    "id": "metric_invoice_amount_no_result",
+    "description": "A valid filter with no matching group returns no rows.",
+    "query": {
+      "metric": "invoice_amount",
+      "dimensions": ["customer"],
+      "filters": [
+        {"dimension": "customer", "operator": "eq", "values": ["No Such Customer"]}
+      ]
+    },
+    "expected_rows": [],
+    "expected_row_count": 0
+  },
+  {
+    "id": "metric_project_cost_total",
+    "description": "Plain project cost.",
+    "query": {"metric": "project_cost"},
+    "expected_rows": [{"project_cost": 88700}]
+  },
+  {
+    "id": "metric_project_cost_category",
+    "description": "Project cost by governed category dimension.",
+    "query": {"metric": "project_cost", "dimensions": ["cost_category"]},
+    "expected_rows": [
+      {"cost_category": "labor", "project_cost": 77000},
+      {"cost_category": "software", "project_cost": 7500},
+      {"cost_category": "travel", "project_cost": 4200}
+    ]
+  },
+  {
+    "id": "metric_project_cost_project",
+    "description": "Project cost by project.",
+    "query": {"metric": "project_cost", "dimensions": ["project"]},
+    "expected_rows": [
+      {"project": "Fleet Optimization Platform", "project_cost": 39200},
+      {"project": "Retail Analytics Modernization", "project_cost": 49500}
+    ]
+  },
+  {
+    "id": "metric_project_cost_month",
+    "description": "Project cost grouped by cost month.",
+    "query": {
+      "metric": "project_cost",
+      "time_dimension": "project_cost_date",
+      "time_grain": "month"
+    },
+    "expected_rows": [
+      {"project_cost_date": "2025-01-01", "project_cost": 49500},
+      {"project_cost_date": "2025-02-01", "project_cost": 39200}
+    ]
+  },
+  {
+    "id": "metric_project_margin_total",
+    "description": "Plain project margin across project-grain rows.",
+    "query": {"metric": "project_margin"},
+    "expected_rows": [{"project_margin": 116300}]
+  },
+  {
+    "id": "metric_project_margin_project",
+    "description": "Project margin by project without multi-fact fanout.",
+    "query": {"metric": "project_margin", "dimensions": ["project"]},
+    "expected_rows": [
+      {"project": "Factory Data Foundation", "project_margin": 0},
+      {"project": "Fleet Optimization Platform", "project_margin": 70800},
+      {"project": "Retail Analytics Modernization", "project_margin": 45500}
+    ]
+  },
+  {
+    "id": "metric_budget_utilization_total",
+    "description": "Cost divided by budget across project-grain rows.",
+    "query": {"metric": "budget_utilization"},
+    "expected_rows": [{"budget_utilization": 6.290780141843972}],
+    "numeric_tolerance": 0.000001
+  },
+  {
+    "id": "metric_budget_utilization_project_limit",
+    "description": "Budget utilization by project with a provider-enforced row limit.",
+    "query": {
+      "metric": "budget_utilization",
+      "dimensions": ["project"],
+      "limit": 2
+    },
+    "expected_row_count": 2,
+    "expected_subset_of": [
+      {"project": "Factory Data Foundation", "budget_utilization": 0},
+      {"project": "Fleet Optimization Platform", "budget_utilization": 6.32258064516129},
+      {"project": "Retail Analytics Modernization", "budget_utilization": 10.3125}
+    ],
+    "numeric_tolerance": 0.000001
+  },
+  {
+    "id": "metric_active_headcount_repeated",
+    "description": "Repeat the same governed metric request for warm-path evidence.",
+    "query": {"metric": "active_headcount"},
+    "expected_rows": [{"active_headcount": 10}]
+  },
+  {
+    "id": "metric_invalid_metric",
+    "description": "Unknown formulas cannot be introduced as metric IDs.",
+    "query": {"metric": "sum_salary_times_two"},
+    "expected_error": "invalid_metric_query"
+  },
+  {
+    "id": "metric_invalid_dimension",
+    "description": "A governed metric rejects dimensions outside its contract.",
+    "query": {"metric": "annual_base_payroll", "dimensions": ["customer"]},
+    "expected_error": "invalid_metric_query"
+  },
+  {
+    "id": "metric_invalid_filter",
+    "description": "A governed metric rejects filter members outside its contract.",
+    "query": {
+      "metric": "budget_utilization",
+      "filters": [
+        {
+          "dimension": "salary_expression",
+          "operator": "eq",
+          "values": ["SUM(salary * 2)"]
+        }
+      ]
+    },
+    "expected_error": "invalid_metric_query"
+  }
+]

@@ -70,7 +70,10 @@ CASES = [
         ["analytics.employees"],
         sql="SELECT full_name, job_title, salary FROM analytics.employees WHERE full_name = 'Maya Haddad'",
         row_count=1,
-        assertions=[assertion(0, "job_title", "VP Engineering"), assertion(0, "salary", "190000.00")],
+        assertions=[
+            assertion(0, "job_title", "VP Engineering"),
+            assertion(0, "salary", "190000.00"),
+        ],
         terms=["VP Engineering", "190000"],
     ),
     case(
@@ -82,7 +85,10 @@ CASES = [
         ["analytics.employees"],
         sql="SELECT full_name, job_title FROM analytics.employees WHERE arabic_name = 'عمر فاروق'",
         row_count=1,
-        assertions=[assertion(0, "full_name", "Omar Farouk"), assertion(0, "job_title", "Finance Director")],
+        assertions=[
+            assertion(0, "full_name", "Omar Farouk"),
+            assertion(0, "job_title", "Finance Director"),
+        ],
         terms=["Omar Farouk", "Finance Director"],
     ),
     case(
@@ -130,7 +136,11 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="SELECT d.name AS department, COUNT(*) AS employee_count FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active' GROUP BY d.name ORDER BY employee_count DESC, department",
         row_count=4,
-        assertions=[assertion(0, "department", "Engineering"), assertion(0, "employee_count", 4), assertion(3, "department", "People Operations")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(0, "employee_count", 4),
+            assertion(3, "department", "People Operations"),
+        ],
         terms=["Engineering", "4", "People Operations"],
     ),
     case(
@@ -183,7 +193,11 @@ CASES = [
         ["analytics.invoices", "analytics.invoice_lines"],
         sql="SELECT i.invoice_number, CAST(SUM(il.quantity * il.unit_price) AS DECIMAL(14, 2)) AS invoice_total FROM analytics.invoices i JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY i.invoice_number ORDER BY invoice_total DESC",
         row_count=2,
-        assertions=[assertion(0, "invoice_number", "INV-2025-002"), assertion(0, "invoice_total", "110000.00"), assertion(1, "invoice_total", "95000.00")],
+        assertions=[
+            assertion(0, "invoice_number", "INV-2025-002"),
+            assertion(0, "invoice_total", "110000.00"),
+            assertion(1, "invoice_total", "95000.00"),
+        ],
         terms=["INV-2025-002", "110000", "95000"],
     ),
     case(
@@ -195,7 +209,11 @@ CASES = [
         ["analytics.project_costs"],
         sql="SELECT category, CAST(SUM(amount) AS DECIMAL(14, 2)) AS total_cost FROM analytics.project_costs GROUP BY category ORDER BY total_cost DESC",
         row_count=3,
-        assertions=[assertion(0, "category", "labor"), assertion(0, "total_cost", "77000.00"), assertion(2, "category", "travel")],
+        assertions=[
+            assertion(0, "category", "labor"),
+            assertion(0, "total_cost", "77000.00"),
+            assertion(2, "category", "travel"),
+        ],
         terms=["labor", "77000", "travel"],
     ),
     case(
@@ -220,7 +238,11 @@ CASES = [
         ["analytics.employees", "analytics.departments"],
         sql="SELECT e.full_name, d.name AS department, e.salary FROM analytics.employees e JOIN analytics.departments d ON d.id = e.department_id WHERE e.status = 'active' ORDER BY e.salary DESC, e.full_name",
         row_count=10,
-        assertions=[assertion(0, "full_name", "Maya Haddad"), assertion(0, "department", "Engineering"), assertion(9, "full_name", "Sara Ibrahim")],
+        assertions=[
+            assertion(0, "full_name", "Maya Haddad"),
+            assertion(0, "department", "Engineering"),
+            assertion(9, "full_name", "Sara Ibrahim"),
+        ],
         terms=["Maya Haddad", "Engineering", "Sara Ibrahim"],
     ),
     case(
@@ -232,7 +254,11 @@ CASES = [
         ["analytics.projects", "analytics.customers", "analytics.departments"],
         sql="SELECT p.project_code, c.name AS customer, d.name AS department FROM analytics.projects p JOIN analytics.customers c ON c.id = p.customer_id JOIN analytics.departments d ON d.id = p.owning_department_id ORDER BY p.project_code",
         row_count=3,
-        assertions=[assertion(0, "project_code", "P-099"), assertion(1, "customer", "Nile Retail Group"), assertion(2, "department", "Engineering")],
+        assertions=[
+            assertion(0, "project_code", "P-099"),
+            assertion(1, "customer", "Nile Retail Group"),
+            assertion(2, "department", "Engineering"),
+        ],
         terms=["P-099", "Nile Retail Group", "Engineering"],
     ),
     case(
@@ -244,7 +270,11 @@ CASES = [
         ["analytics.invoices", "analytics.invoice_lines", "analytics.customers"],
         sql="SELECT i.invoice_number, c.name AS customer, CAST(SUM(il.quantity * il.unit_price) AS DECIMAL(14, 2)) AS invoice_total FROM analytics.invoices i JOIN analytics.customers c ON c.id = i.customer_id JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY i.invoice_number, c.name ORDER BY i.invoice_number",
         row_count=2,
-        assertions=[assertion(0, "customer", "Nile Retail Group"), assertion(0, "invoice_total", "95000.00"), assertion(1, "customer", "Gulf Logistics")],
+        assertions=[
+            assertion(0, "customer", "Nile Retail Group"),
+            assertion(0, "invoice_total", "95000.00"),
+            assertion(1, "customer", "Gulf Logistics"),
+        ],
         terms=["Nile Retail Group", "95000", "Gulf Logistics"],
     ),
     case(
@@ -256,7 +286,11 @@ CASES = [
         ["analytics.employee_project_assignments", "analytics.employees", "analytics.projects"],
         sql="SELECT p.project_code, e.full_name, a.allocation_percent FROM analytics.employee_project_assignments a JOIN analytics.employees e ON e.id = a.employee_id JOIN analytics.projects p ON p.id = a.project_id ORDER BY p.project_code, e.full_name",
         row_count=5,
-        assertions=[assertion(0, "project_code", "P-099"), assertion(0, "full_name", "Lina Saleh"), assertion(4, "project_code", "P-102")],
+        assertions=[
+            assertion(0, "project_code", "P-099"),
+            assertion(0, "full_name", "Lina Saleh"),
+            assertion(4, "project_code", "P-102"),
+        ],
         terms=["P-099", "Lina Saleh", "P-102"],
     ),
     case(
@@ -285,7 +319,11 @@ CASES = [
         ["analytics.customers", "analytics.invoices", "analytics.invoice_lines"],
         sql="SELECT c.name AS customer, CAST(SUM(il.quantity * il.unit_price) AS DECIMAL(14, 2)) AS invoiced_revenue FROM analytics.customers c JOIN analytics.invoices i ON i.customer_id = c.id JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY c.name ORDER BY invoiced_revenue DESC",
         row_count=2,
-        assertions=[assertion(0, "customer", "Gulf Logistics"), assertion(0, "invoiced_revenue", "110000.00"), assertion(1, "invoiced_revenue", "95000.00")],
+        assertions=[
+            assertion(0, "customer", "Gulf Logistics"),
+            assertion(0, "invoiced_revenue", "110000.00"),
+            assertion(1, "invoiced_revenue", "95000.00"),
+        ],
         terms=["Gulf Logistics", "110000", "95000"],
     ),
     case(
@@ -294,10 +332,19 @@ CASES = [
         "hard",
         "en",
         "Compare invoiced revenue, costs, and margin for projects with invoices.",
-        ["analytics.projects", "analytics.invoices", "analytics.invoice_lines", "analytics.project_costs"],
+        [
+            "analytics.projects",
+            "analytics.invoices",
+            "analytics.invoice_lines",
+            "analytics.project_costs",
+        ],
         sql="WITH revenue AS (SELECT i.project_id, SUM(il.quantity * il.unit_price) AS revenue FROM analytics.invoices i JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY i.project_id), costs AS (SELECT project_id, SUM(amount) AS costs FROM analytics.project_costs GROUP BY project_id) SELECT p.project_code, CAST(r.revenue AS DECIMAL(14, 2)) AS revenue, CAST(COALESCE(c.costs, 0) AS DECIMAL(14, 2)) AS costs, CAST(r.revenue - COALESCE(c.costs, 0) AS DECIMAL(14, 2)) AS margin FROM analytics.projects p JOIN revenue r ON r.project_id = p.id LEFT JOIN costs c ON c.project_id = p.id ORDER BY p.project_code",
         row_count=2,
-        assertions=[assertion(0, "project_code", "P-101"), assertion(0, "margin", "45500.00"), assertion(1, "margin", "70800.00")],
+        assertions=[
+            assertion(0, "project_code", "P-101"),
+            assertion(0, "margin", "45500.00"),
+            assertion(1, "margin", "70800.00"),
+        ],
         terms=["P-101", "45500", "70800"],
     ),
     case(
@@ -309,7 +356,10 @@ CASES = [
         ["analytics.departments", "analytics.projects"],
         sql="SELECT d.name AS department, CAST(SUM(p.budget) AS DECIMAL(14, 2)) AS total_budget FROM analytics.departments d JOIN analytics.projects p ON p.owning_department_id = d.id GROUP BY d.name ORDER BY total_budget DESC",
         row_count=1,
-        assertions=[assertion(0, "department", "Engineering"), assertion(0, "total_budget", "1410000.00")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(0, "total_budget", "1410000.00"),
+        ],
         terms=["Engineering", "1410000"],
     ),
     case(
@@ -321,7 +371,10 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="WITH department_salary AS (SELECT d.name AS department, AVG(e.salary) AS average_salary FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active' GROUP BY d.name), company_salary AS (SELECT AVG(salary) AS average_salary FROM analytics.employees WHERE status = 'active') SELECT ds.department, CAST(ds.average_salary AS DECIMAL(14, 2)) AS average_salary FROM department_salary ds CROSS JOIN company_salary cs WHERE ds.average_salary > cs.average_salary ORDER BY ds.department",
         row_count=1,
-        assertions=[assertion(0, "department", "Engineering"), assertion(0, "average_salary", "152500.00")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(0, "average_salary", "152500.00"),
+        ],
         terms=["Engineering", "152500"],
     ),
     case(
@@ -333,7 +386,11 @@ CASES = [
         ["analytics.employees"],
         sql="SELECT e.full_name, e.salary FROM analytics.employees e WHERE e.status = 'active' AND e.salary > (SELECT AVG(peer.salary) FROM analytics.employees peer WHERE peer.department_id = e.department_id AND peer.status = 'active') ORDER BY e.salary DESC, e.full_name",
         row_count=4,
-        assertions=[assertion(0, "full_name", "Maya Haddad"), assertion(1, "full_name", "Karim Adel"), assertion(3, "full_name", "Omar Farouk")],
+        assertions=[
+            assertion(0, "full_name", "Maya Haddad"),
+            assertion(1, "full_name", "Karim Adel"),
+            assertion(3, "full_name", "Omar Farouk"),
+        ],
         terms=["Maya Haddad", "Karim Adel", "Omar Farouk"],
     ),
     case(
@@ -345,7 +402,10 @@ CASES = [
         ["analytics.customers", "analytics.invoices", "analytics.invoice_lines"],
         sql="WITH customer_revenue AS (SELECT c.name AS customer, SUM(il.quantity * il.unit_price) AS revenue FROM analytics.customers c JOIN analytics.invoices i ON i.customer_id = c.id JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY c.name) SELECT customer, CAST(revenue AS DECIMAL(14, 2)) AS revenue FROM customer_revenue WHERE revenue > 100000 ORDER BY revenue DESC",
         row_count=1,
-        assertions=[assertion(0, "customer", "Gulf Logistics"), assertion(0, "revenue", "110000.00")],
+        assertions=[
+            assertion(0, "customer", "Gulf Logistics"),
+            assertion(0, "revenue", "110000.00"),
+        ],
         terms=["Gulf Logistics", "110000"],
     ),
     case(
@@ -357,7 +417,11 @@ CASES = [
         ["analytics.projects", "analytics.project_costs"],
         sql="WITH project_totals AS (SELECT p.id, p.project_code, COALESCE(SUM(pc.amount), 0) AS total_cost FROM analytics.projects p LEFT JOIN analytics.project_costs pc ON pc.project_id = p.id GROUP BY p.id, p.project_code), average_cost AS (SELECT AVG(total_cost) AS average_cost FROM project_totals) SELECT pt.project_code, CAST(pt.total_cost AS DECIMAL(14, 2)) AS total_cost FROM project_totals pt CROSS JOIN average_cost ac WHERE pt.total_cost > ac.average_cost ORDER BY pt.total_cost DESC",
         row_count=2,
-        assertions=[assertion(0, "project_code", "P-101"), assertion(0, "total_cost", "49500.00"), assertion(1, "project_code", "P-102")],
+        assertions=[
+            assertion(0, "project_code", "P-101"),
+            assertion(0, "total_cost", "49500.00"),
+            assertion(1, "project_code", "P-102"),
+        ],
         terms=["P-101", "49500", "P-102"],
     ),
     case(
@@ -369,7 +433,11 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="SELECT d.name AS department, COUNT(*) AS employee_count FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active' GROUP BY d.name HAVING COUNT(*) >= 2 ORDER BY employee_count DESC, department",
         row_count=3,
-        assertions=[assertion(0, "department", "Engineering"), assertion(1, "department", "Sales"), assertion(2, "department", "Finance")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(1, "department", "Sales"),
+            assertion(2, "department", "Finance"),
+        ],
         terms=["Engineering", "Sales", "Finance"],
     ),
     case(
@@ -381,7 +449,11 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="WITH ranked AS (SELECT d.name AS department, e.full_name, e.salary, ROW_NUMBER() OVER (PARTITION BY d.id ORDER BY e.salary DESC, e.full_name) AS salary_rank FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active') SELECT department, full_name, salary FROM ranked WHERE salary_rank = 1 ORDER BY department",
         row_count=4,
-        assertions=[assertion(0, "department", "Engineering"), assertion(0, "full_name", "Maya Haddad"), assertion(3, "full_name", "Noura Mansour")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(0, "full_name", "Maya Haddad"),
+            assertion(3, "full_name", "Noura Mansour"),
+        ],
         terms=["Maya Haddad", "Noura Mansour"],
     ),
     case(
@@ -409,7 +481,10 @@ CASES = [
         ["analytics.invoices", "analytics.invoice_lines"],
         sql="WITH invoice_totals AS (SELECT i.id, i.invoice_number, i.issued_on, SUM(il.quantity * il.unit_price) AS invoice_total FROM analytics.invoices i JOIN analytics.invoice_lines il ON il.invoice_id = i.id GROUP BY i.id, i.invoice_number, i.issued_on) SELECT invoice_number, issued_on, CAST(invoice_total AS DECIMAL(14, 2)) AS invoice_total, CAST(SUM(invoice_total) OVER (ORDER BY issued_on, id) AS DECIMAL(14, 2)) AS cumulative_revenue FROM invoice_totals ORDER BY issued_on, id",
         row_count=2,
-        assertions=[assertion(0, "cumulative_revenue", "95000.00"), assertion(1, "cumulative_revenue", "205000.00")],
+        assertions=[
+            assertion(0, "cumulative_revenue", "95000.00"),
+            assertion(1, "cumulative_revenue", "205000.00"),
+        ],
         terms=["95000", "205000"],
     ),
     case(
@@ -421,7 +496,11 @@ CASES = [
         ["analytics.projects", "analytics.project_costs"],
         sql="WITH category_cost AS (SELECT p.project_code, pc.category, SUM(pc.amount) AS total_cost FROM analytics.projects p JOIN analytics.project_costs pc ON pc.project_id = p.id GROUP BY p.project_code, pc.category) SELECT project_code, category, CAST(total_cost AS DECIMAL(14, 2)) AS total_cost, DENSE_RANK() OVER (PARTITION BY project_code ORDER BY total_cost DESC) AS cost_rank FROM category_cost ORDER BY project_code, cost_rank",
         row_count=4,
-        assertions=[assertion(0, "category", "labor"), assertion(1, "category", "software"), assertion(3, "category", "travel")],
+        assertions=[
+            assertion(0, "category", "labor"),
+            assertion(1, "category", "software"),
+            assertion(3, "category", "travel"),
+        ],
         terms=["labor", "software", "travel"],
     ),
     case(
@@ -462,7 +541,11 @@ CASES = [
         ["analytics.employees"],
         sql="SELECT EXTRACT(YEAR FROM hire_date)::INTEGER AS hire_year, COUNT(*) AS hires FROM analytics.employees WHERE status = 'active' GROUP BY hire_year ORDER BY hire_year",
         row_count=7,
-        assertions=[assertion(0, "hire_year", 2017), assertion(3, "hires", 2), assertion(6, "hire_year", 2023)],
+        assertions=[
+            assertion(0, "hire_year", 2017),
+            assertion(3, "hires", 2),
+            assertion(6, "hire_year", 2023),
+        ],
         terms=["2017", "2023"],
     ),
     case(
@@ -474,7 +557,10 @@ CASES = [
         ["analytics.invoices"],
         sql="SELECT invoice_number, due_on, status FROM analytics.invoices WHERE due_on >= DATE '2025-03-01' AND due_on < DATE '2025-04-01' ORDER BY due_on",
         row_count=2,
-        assertions=[assertion(0, "invoice_number", "INV-2025-001"), assertion(1, "invoice_number", "INV-2025-002")],
+        assertions=[
+            assertion(0, "invoice_number", "INV-2025-001"),
+            assertion(1, "invoice_number", "INV-2025-002"),
+        ],
         terms=["INV-2025-001", "INV-2025-002"],
     ),
     case(
@@ -498,7 +584,11 @@ CASES = [
         ["analytics.payroll"],
         sql="SELECT period_start, CAST(SUM(base_salary + bonus - deductions) AS DECIMAL(14, 2)) AS net_payroll FROM analytics.payroll WHERE period_start BETWEEN DATE '2025-01-01' AND DATE '2025-02-01' GROUP BY period_start ORDER BY period_start",
         row_count=2,
-        assertions=[assertion(0, "period_start", "2025-01-01"), assertion(1, "period_start", "2025-02-01"), assertion(1, "net_payroll", 114375, "approx")],
+        assertions=[
+            assertion(0, "period_start", "2025-01-01"),
+            assertion(1, "period_start", "2025-02-01"),
+            assertion(1, "net_payroll", 114375, "approx"),
+        ],
         terms=["2025-01-01", "2025-02-01", "114375"],
         tolerance=1.0,
     ),
@@ -523,7 +613,10 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="SELECT d.name AS department, CAST(SUM(e.salary) AS DECIMAL(14, 2)) AS total_payroll FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active' GROUP BY d.name ORDER BY total_payroll DESC LIMIT 1",
         row_count=1,
-        assertions=[assertion(0, "department", "Engineering"), assertion(0, "total_payroll", "610000.00")],
+        assertions=[
+            assertion(0, "department", "Engineering"),
+            assertion(0, "total_payroll", "610000.00"),
+        ],
         terms=["Engineering", "610000"],
     ),
     case(
@@ -591,7 +684,10 @@ CASES = [
         ["analytics.departments", "analytics.employees"],
         sql="WITH ranked AS (SELECT d.name AS department, SUM(e.salary) AS total_payroll, ROW_NUMBER() OVER (ORDER BY SUM(e.salary) DESC) AS payroll_rank FROM analytics.departments d JOIN analytics.employees e ON e.department_id = d.id WHERE e.status = 'active' GROUP BY d.name) SELECT department, CAST(total_payroll AS DECIMAL(14, 2)) AS total_payroll FROM ranked WHERE payroll_rank = 2",
         row_count=1,
-        assertions=[assertion(0, "department", "Sales"), assertion(0, "total_payroll", "375000.00")],
+        assertions=[
+            assertion(0, "department", "Sales"),
+            assertion(0, "total_payroll", "375000.00"),
+        ],
         terms=["Sales", "375000"],
     ),
     case(

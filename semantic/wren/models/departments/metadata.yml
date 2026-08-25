@@ -1,0 +1,32 @@
+name: departments
+table_reference:
+  schema: analytics
+  table: departments
+primary_key: id
+columns:
+  - name: id
+    type: INTEGER
+    is_primary_key: true
+    not_null: true
+  - name: name
+    type: VARCHAR
+    not_null: true
+    properties:
+      description: English department name.
+      aliases: [department, department name, division, قسم]
+  - name: arabic_name
+    type: VARCHAR
+    not_null: true
+    properties:
+      description: Arabic department name.
+  - name: cost_center
+    type: VARCHAR
+    not_null: true
+    properties:
+      description: Unique finance cost-center code.
+  - name: created_at
+    type: TIMESTAMP
+    not_null: true
+properties:
+  description: Enterprise departments and cost centers.
+  aliases: [department, departments, division, cost center, قسم, الأقسام]

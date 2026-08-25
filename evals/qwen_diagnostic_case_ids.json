@@ -1,0 +1,14 @@
+[
+  "aggregate_active_headcount_department",
+  "aggregate_invoice_totals",
+  "join_invoice_customer_totals",
+  "join_project_margin",
+  "cte_department_above_company_average",
+  "cte_customer_revenue_threshold",
+  "window_highest_paid_department",
+  "window_project_cost_rank",
+  "temporal_hires_in_2022",
+  "temporal_payroll_by_month",
+  "ambiguity_revenue_definition",
+  "followup_second_department_payroll"
+]

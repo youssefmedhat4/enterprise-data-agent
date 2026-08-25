@@ -1,0 +1,29 @@
+[
+  {"id":"valid_simple_select","category":"valid","sql":"SELECT e.full_name FROM analytics.employees e","expected_valid":true},
+  {"id":"valid_schema_qualified","category":"valid","sql":"SELECT d.id, d.name FROM analytics.departments d","expected_valid":true},
+  {"id":"valid_join","category":"valid","sql":"SELECT e.full_name, d.name FROM analytics.employees e JOIN analytics.departments d ON e.department_id = d.id","expected_valid":true},
+  {"id":"valid_aggregation","category":"valid","sql":"SELECT e.department_id, COUNT(*) AS employee_count, AVG(e.salary) AS average_salary FROM analytics.employees e GROUP BY e.department_id","expected_valid":true},
+  {"id":"valid_cte","category":"valid","sql":"WITH active AS (SELECT id, department_id FROM analytics.employees WHERE status = 'active') SELECT d.name, COUNT(a.id) FROM active a JOIN analytics.departments d ON a.department_id = d.id GROUP BY d.name","expected_valid":true},
+  {"id":"valid_nested_subquery","category":"valid","sql":"SELECT x.department_id FROM (SELECT e.department_id FROM analytics.employees e WHERE e.status = 'active') x","expected_valid":true},
+  {"id":"valid_window","category":"valid","sql":"SELECT e.full_name, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS salary_rank FROM analytics.employees e","expected_valid":true},
+  {"id":"valid_projection_alias_order","category":"valid","sql":"SELECT d.name AS department, SUM(e.salary) AS payroll FROM analytics.employees e JOIN analytics.departments d ON e.department_id = d.id GROUP BY d.name ORDER BY payroll DESC","expected_valid":true},
+  {"id":"valid_having","category":"valid","sql":"SELECT e.department_id, SUM(e.salary) AS payroll FROM analytics.employees e GROUP BY e.department_id HAVING SUM(e.salary) > 100000","expected_valid":true},
+
+  {"id":"repair_unknown_table","category":"repairable","sql":"SELECT e.full_name FROM analytics.employee e","expected_valid":false,"expected_error_code":"unknown_table","expected_repairable":true},
+  {"id":"repair_unknown_column","category":"repairable","sql":"SELECT e.department_title FROM analytics.employees e","expected_valid":false,"expected_error_code":"unknown_column","expected_repairable":true},
+  {"id":"repair_unresolved_alias","category":"repairable","sql":"SELECT x.salary FROM analytics.employees e","expected_valid":false,"expected_error_code":"unresolved_alias","expected_repairable":true},
+  {"id":"repair_ambiguous_column","category":"repairable","sql":"SELECT id FROM analytics.employees e JOIN analytics.departments d ON e.department_id = d.id","expected_valid":false,"expected_error_code":"ambiguous_column","expected_repairable":true},
+  {"id":"repair_forbidden_schema","category":"repairable","sql":"SELECT e.full_name FROM public.employees e","expected_valid":false,"expected_error_code":"forbidden_schema","expected_repairable":true},
+  {"id":"repair_invalid_cte_reference","category":"repairable","sql":"WITH active AS (SELECT e.id FROM analytics.employees e) SELECT a.id FROM active_employees a","expected_valid":false,"expected_error_code":"invalid_cte_reference","expected_repairable":true},
+  {"id":"repair_wrong_table_column","category":"repairable","sql":"SELECT p.full_name FROM analytics.projects p","expected_valid":false,"expected_error_code":"unknown_column","expected_repairable":true},
+  {"id":"repair_cte_output_column","category":"repairable","sql":"WITH active AS (SELECT e.id FROM analytics.employees e) SELECT a.department_id FROM active a","expected_valid":false,"expected_error_code":"unknown_column","expected_repairable":true},
+
+  {"id":"block_pg_catalog","category":"non_repairable","sql":"SELECT p.usename FROM pg_catalog.pg_user p","expected_valid":false,"expected_error_code":"forbidden_system_access","expected_repairable":false},
+  {"id":"block_information_schema","category":"non_repairable","sql":"SELECT c.table_name FROM information_schema.columns c","expected_valid":false,"expected_error_code":"forbidden_system_access","expected_repairable":false},
+  {"id":"block_unknown_function","category":"non_repairable","sql":"SELECT nonexistent_function(e.salary) FROM analytics.employees e","expected_valid":false,"expected_error_code":"forbidden_function","expected_repairable":false},
+  {"id":"block_projection_star","category":"non_repairable","sql":"SELECT e.* FROM analytics.employees e","expected_valid":false,"expected_error_code":"restricted_star","expected_repairable":false},
+  {"id":"block_multiple_statements","category":"non_repairable","sql":"SELECT e.id FROM analytics.employees e; DROP TABLE analytics.employees","expected_valid":false,"expected_error_code":"multiple_statements","expected_repairable":false},
+  {"id":"block_delete","category":"non_repairable","sql":"DELETE FROM analytics.employees","expected_valid":false,"expected_error_code":"mutation_attempt","expected_repairable":false},
+  {"id":"block_update","category":"non_repairable","sql":"UPDATE analytics.employees SET salary = 0","expected_valid":false,"expected_error_code":"mutation_attempt","expected_repairable":false},
+  {"id":"block_drop","category":"non_repairable","sql":"DROP TABLE analytics.employees","expected_valid":false,"expected_error_code":"mutation_attempt","expected_repairable":false}
+]

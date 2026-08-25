@@ -1,0 +1,37 @@
+name: invoices
+table_reference:
+  schema: analytics
+  table: invoices
+primary_key: id
+columns:
+  - name: id
+    type: BIGINT
+    is_primary_key: true
+    not_null: true
+  - name: invoice_number
+    type: VARCHAR
+    not_null: true
+  - name: customer_id
+    type: INTEGER
+    not_null: true
+  - name: project_id
+    type: INTEGER
+  - name: issued_on
+    type: DATE
+    not_null: true
+    properties:
+      description: Invoice issue date and default invoice time-filter field.
+  - name: due_on
+    type: DATE
+    not_null: true
+  - name: status
+    type: VARCHAR
+    not_null: true
+    properties:
+      accepted_values: [draft, issued, paid, overdue, void]
+  - name: currency
+    type: VARCHAR
+    not_null: true
+properties:
+  description: Customer invoices linked to customers and optionally projects.
+  aliases: [invoice, invoices, billing document, فاتورة, الفواتير]

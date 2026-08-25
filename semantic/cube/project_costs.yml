@@ -1,0 +1,44 @@
+cubes:
+  - name: project_cost_metrics
+    sql: |
+      SELECT
+        project_costs.id AS project_cost_id,
+        projects.name AS project,
+        project_costs.category AS cost_category,
+        customers.name AS customer,
+        departments.name AS department,
+        project_costs.cost_date AS project_cost_date,
+        project_costs.amount AS project_cost_amount
+      FROM analytics.project_costs AS project_costs
+      JOIN analytics.projects AS projects ON project_costs.project_id = projects.id
+      JOIN analytics.customers AS customers ON projects.customer_id = customers.id
+      JOIN analytics.departments AS departments
+        ON projects.owning_department_id = departments.id
+
+    measures:
+      - name: project_cost
+        sql: project_cost_amount
+        type: sum
+
+    dimensions:
+      - name: project_cost_id
+        sql: project_cost_id
+        type: number
+        primary_key: true
+      - name: project
+        sql: project
+        type: string
+      - name: cost_category
+        sql: cost_category
+        type: string
+      - name: customer
+        sql: customer
+        type: string
+      - name: department
+        sql: department
+        type: string
+      - name: project_cost_date
+        sql: project_cost_date
+        type: time
+
+    description: Certified project cost metrics, definition version 1.0.

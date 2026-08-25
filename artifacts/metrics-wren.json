@@ -1,0 +1,436 @@
+{
+  "provider": "wren",
+  "case_count": 25,
+  "passed": 25,
+  "failed": 0,
+  "correctness": 1.0,
+  "p50_latency_ms": 498.158,
+  "p95_latency_ms": 639.984,
+  "outcomes": [
+    {
+      "case_id": "metric_active_headcount_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "active_headcount": 10
+        }
+      ],
+      "latency_ms": 561.868,
+      "retrieval_latency_ms": 507.909,
+      "execution_latency_ms": 45.369,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT SUM(active_employee_count) AS active_headcount FROM workforce_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_active_headcount_department",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "department": "Finance",
+          "active_headcount": 2
+        },
+        {
+          "department": "Engineering",
+          "active_headcount": 4
+        },
+        {
+          "department": "People Operations",
+          "active_headcount": 1
+        },
+        {
+          "department": "Sales",
+          "active_headcount": 3
+        }
+      ],
+      "latency_ms": 614.742,
+      "retrieval_latency_ms": 603.697,
+      "execution_latency_ms": 8.198,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT department AS department, SUM(active_employee_count) AS active_headcount FROM workforce_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_active_headcount_department_filter",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "department": "Engineering",
+          "active_headcount": 4
+        }
+      ],
+      "latency_ms": 679.132,
+      "retrieval_latency_ms": 669.291,
+      "execution_latency_ms": 6.861,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT department AS department, SUM(active_employee_count) AS active_headcount FROM workforce_metric_base WHERE department = 'Engineering' GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_annual_base_payroll_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "annual_base_payroll": "1565000.00"
+        }
+      ],
+      "latency_ms": 639.984,
+      "retrieval_latency_ms": 629.25,
+      "execution_latency_ms": 7.967,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT SUM(annual_base_salary) AS annual_base_payroll FROM workforce_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_annual_base_payroll_department",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "department": "Finance",
+          "annual_base_payroll": "255000.00"
+        },
+        {
+          "department": "Engineering",
+          "annual_base_payroll": "710000.00"
+        },
+        {
+          "department": "People Operations",
+          "annual_base_payroll": "225000.00"
+        },
+        {
+          "department": "Sales",
+          "annual_base_payroll": "375000.00"
+        }
+      ],
+      "latency_ms": 578.054,
+      "retrieval_latency_ms": 567.609,
+      "execution_latency_ms": 7.461,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT department AS department, SUM(annual_base_salary) AS annual_base_payroll FROM workforce_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_net_payroll_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "net_payroll": "224250.00"
+        }
+      ],
+      "latency_ms": 598.839,
+      "retrieval_latency_ms": 586.851,
+      "execution_latency_ms": 8.187,
+      "generated_sql": "WITH payroll AS (SELECT \"wren_src_payroll\".\"id\" AS id, \"wren_src_payroll\".\"status\" AS status, \"wren_src_payroll\".period_start AS period_start, \"wren_src_payroll\".deductions AS deductions, \"wren_src_payroll\".employee_id AS employee_id, \"wren_src_payroll\".base_salary AS base_salary, \"wren_src_payroll\".bonus AS bonus FROM (SELECT payroll.base_salary, payroll.bonus, payroll.deductions, payroll.employee_id, payroll.\"id\", payroll.period_start, payroll.\"status\" FROM (SELECT __source.base_salary AS base_salary, __source.bonus AS bonus, __source.deductions AS deductions, __source.employee_id AS employee_id, __source.\"id\" AS \"id\", __source.period_start AS period_start, __source.\"status\" AS \"status\" FROM analytics.payroll AS __source) AS payroll) AS \"wren_src_payroll\"), employees AS (SELECT \"wren_src_employees\".currency AS currency, \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), payroll_metric_base AS (SELECT payroll.id AS payroll_id, departments.name AS department, payroll.status AS payroll_status, employees.currency AS currency, payroll.period_start AS payroll_period, payroll.base_salary + payroll.bonus - payroll.deductions AS net_payroll_amount FROM payroll JOIN employees ON payroll.employee_id = employees.id JOIN departments ON employees.department_id = departments.id) SELECT SUM(net_payroll_amount) AS net_payroll FROM payroll_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_net_payroll_department",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "department": "Finance",
+          "net_payroll": "38250.00"
+        },
+        {
+          "department": "People Operations",
+          "net_payroll": "33750.00"
+        },
+        {
+          "department": "Sales",
+          "net_payroll": "60750.00"
+        },
+        {
+          "department": "Engineering",
+          "net_payroll": "91500.00"
+        }
+      ],
+      "latency_ms": 585.753,
+      "retrieval_latency_ms": 572.979,
+      "execution_latency_ms": 8.71,
+      "generated_sql": "WITH payroll AS (SELECT \"wren_src_payroll\".\"id\" AS id, \"wren_src_payroll\".\"status\" AS status, \"wren_src_payroll\".period_start AS period_start, \"wren_src_payroll\".deductions AS deductions, \"wren_src_payroll\".employee_id AS employee_id, \"wren_src_payroll\".base_salary AS base_salary, \"wren_src_payroll\".bonus AS bonus FROM (SELECT payroll.base_salary, payroll.bonus, payroll.deductions, payroll.employee_id, payroll.\"id\", payroll.period_start, payroll.\"status\" FROM (SELECT __source.base_salary AS base_salary, __source.bonus AS bonus, __source.deductions AS deductions, __source.employee_id AS employee_id, __source.\"id\" AS \"id\", __source.period_start AS period_start, __source.\"status\" AS \"status\" FROM analytics.payroll AS __source) AS payroll) AS \"wren_src_payroll\"), employees AS (SELECT \"wren_src_employees\".currency AS currency, \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), payroll_metric_base AS (SELECT payroll.id AS payroll_id, departments.name AS department, payroll.status AS payroll_status, employees.currency AS currency, payroll.period_start AS payroll_period, payroll.base_salary + payroll.bonus - payroll.deductions AS net_payroll_amount FROM payroll JOIN employees ON payroll.employee_id = employees.id JOIN departments ON employees.department_id = departments.id) SELECT department AS department, SUM(net_payroll_amount) AS net_payroll FROM payroll_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_net_payroll_month",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "payroll_period": "2025-01-01",
+          "net_payroll": "109875.00"
+        },
+        {
+          "payroll_period": "2025-02-01",
+          "net_payroll": "114375.00"
+        }
+      ],
+      "latency_ms": 623.783,
+      "retrieval_latency_ms": 611.257,
+      "execution_latency_ms": 8.548,
+      "generated_sql": "WITH payroll AS (SELECT \"wren_src_payroll\".\"id\" AS id, \"wren_src_payroll\".\"status\" AS status, \"wren_src_payroll\".period_start AS period_start, \"wren_src_payroll\".deductions AS deductions, \"wren_src_payroll\".employee_id AS employee_id, \"wren_src_payroll\".base_salary AS base_salary, \"wren_src_payroll\".bonus AS bonus FROM (SELECT payroll.base_salary, payroll.bonus, payroll.deductions, payroll.employee_id, payroll.\"id\", payroll.period_start, payroll.\"status\" FROM (SELECT __source.base_salary AS base_salary, __source.bonus AS bonus, __source.deductions AS deductions, __source.employee_id AS employee_id, __source.\"id\" AS \"id\", __source.period_start AS period_start, __source.\"status\" AS \"status\" FROM analytics.payroll AS __source) AS payroll) AS \"wren_src_payroll\"), employees AS (SELECT \"wren_src_employees\".currency AS currency, \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), payroll_metric_base AS (SELECT payroll.id AS payroll_id, departments.name AS department, payroll.status AS payroll_status, employees.currency AS currency, payroll.period_start AS payroll_period, payroll.base_salary + payroll.bonus - payroll.deductions AS net_payroll_amount FROM payroll JOIN employees ON payroll.employee_id = employees.id JOIN departments ON employees.department_id = departments.id) SELECT DATE_TRUNC('MONTH', payroll_period) AS payroll_period__month, SUM(net_payroll_amount) AS net_payroll FROM payroll_metric_base GROUP BY 1 ORDER BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_invoice_amount_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "invoice_amount": "205000.0000"
+        }
+      ],
+      "latency_ms": 619.102,
+      "retrieval_latency_ms": 605.469,
+      "execution_latency_ms": 9.303,
+      "generated_sql": "WITH invoice_lines AS (SELECT \"wren_src_invoice_lines\".\"id\" AS id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price, \"wren_src_invoice_lines\".invoice_id AS invoice_id FROM (SELECT invoice_lines.\"id\", invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.\"id\" AS \"id\", __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), invoices AS (SELECT \"wren_src_invoices\".\"status\" AS status, \"wren_src_invoices\".currency AS currency, \"wren_src_invoices\".issued_on AS issued_on, \"wren_src_invoices\".\"id\" AS id, \"wren_src_invoices\".customer_id AS customer_id, \"wren_src_invoices\".project_id AS project_id FROM (SELECT invoices.currency, invoices.customer_id, invoices.\"id\", invoices.issued_on, invoices.project_id, invoices.\"status\" FROM (SELECT __source.currency AS currency, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.issued_on AS issued_on, __source.project_id AS project_id, __source.\"status\" AS \"status\" FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id FROM (SELECT projects.\"id\", projects.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), invoice_metric_base AS (SELECT invoice_lines.id AS invoice_line_id, customers.name AS customer, invoices.status AS invoice_status, projects.name AS project, invoices.currency AS currency, invoices.issued_on AS invoice_issued, invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount FROM invoice_lines JOIN invoices ON invoice_lines.invoice_id = invoices.id JOIN customers ON invoices.customer_id = customers.id LEFT JOIN projects ON invoices.project_id = projects.id) SELECT SUM(invoice_line_amount) AS invoice_amount FROM invoice_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_invoice_amount_customer",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "customer": "Nile Retail Group",
+          "invoice_amount": "95000.0000"
+        },
+        {
+          "customer": "Gulf Logistics",
+          "invoice_amount": "110000.0000"
+        }
+      ],
+      "latency_ms": 625.943,
+      "retrieval_latency_ms": 613.104,
+      "execution_latency_ms": 8.444,
+      "generated_sql": "WITH invoice_lines AS (SELECT \"wren_src_invoice_lines\".\"id\" AS id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price, \"wren_src_invoice_lines\".invoice_id AS invoice_id FROM (SELECT invoice_lines.\"id\", invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.\"id\" AS \"id\", __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), invoices AS (SELECT \"wren_src_invoices\".\"status\" AS status, \"wren_src_invoices\".currency AS currency, \"wren_src_invoices\".issued_on AS issued_on, \"wren_src_invoices\".\"id\" AS id, \"wren_src_invoices\".customer_id AS customer_id, \"wren_src_invoices\".project_id AS project_id FROM (SELECT invoices.currency, invoices.customer_id, invoices.\"id\", invoices.issued_on, invoices.project_id, invoices.\"status\" FROM (SELECT __source.currency AS currency, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.issued_on AS issued_on, __source.project_id AS project_id, __source.\"status\" AS \"status\" FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id FROM (SELECT projects.\"id\", projects.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), invoice_metric_base AS (SELECT invoice_lines.id AS invoice_line_id, customers.name AS customer, invoices.status AS invoice_status, projects.name AS project, invoices.currency AS currency, invoices.issued_on AS invoice_issued, invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount FROM invoice_lines JOIN invoices ON invoice_lines.invoice_id = invoices.id JOIN customers ON invoices.customer_id = customers.id LEFT JOIN projects ON invoices.project_id = projects.id) SELECT customer AS customer, SUM(invoice_line_amount) AS invoice_amount FROM invoice_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_invoice_amount_customer_status",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "customer": "Nile Retail Group",
+          "invoice_status": "paid",
+          "invoice_amount": "95000.0000"
+        },
+        {
+          "customer": "Gulf Logistics",
+          "invoice_status": "issued",
+          "invoice_amount": "110000.0000"
+        }
+      ],
+      "latency_ms": 442.962,
+      "retrieval_latency_ms": 428.843,
+      "execution_latency_ms": 9.273,
+      "generated_sql": "WITH invoice_lines AS (SELECT \"wren_src_invoice_lines\".\"id\" AS id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price, \"wren_src_invoice_lines\".invoice_id AS invoice_id FROM (SELECT invoice_lines.\"id\", invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.\"id\" AS \"id\", __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), invoices AS (SELECT \"wren_src_invoices\".\"status\" AS status, \"wren_src_invoices\".currency AS currency, \"wren_src_invoices\".issued_on AS issued_on, \"wren_src_invoices\".\"id\" AS id, \"wren_src_invoices\".customer_id AS customer_id, \"wren_src_invoices\".project_id AS project_id FROM (SELECT invoices.currency, invoices.customer_id, invoices.\"id\", invoices.issued_on, invoices.project_id, invoices.\"status\" FROM (SELECT __source.currency AS currency, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.issued_on AS issued_on, __source.project_id AS project_id, __source.\"status\" AS \"status\" FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id FROM (SELECT projects.\"id\", projects.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), invoice_metric_base AS (SELECT invoice_lines.id AS invoice_line_id, customers.name AS customer, invoices.status AS invoice_status, projects.name AS project, invoices.currency AS currency, invoices.issued_on AS invoice_issued, invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount FROM invoice_lines JOIN invoices ON invoice_lines.invoice_id = invoices.id JOIN customers ON invoices.customer_id = customers.id LEFT JOIN projects ON invoices.project_id = projects.id) SELECT customer AS customer, invoice_status AS invoice_status, SUM(invoice_line_amount) AS invoice_amount FROM invoice_metric_base GROUP BY 1, 2 LIMIT 100"
+    },
+    {
+      "case_id": "metric_invoice_amount_month",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "invoice_issued": "2025-01-01",
+          "invoice_amount": "95000.0000"
+        }
+      ],
+      "latency_ms": 483.509,
+      "retrieval_latency_ms": 469.342,
+      "execution_latency_ms": 9.434,
+      "generated_sql": "WITH invoice_lines AS (SELECT \"wren_src_invoice_lines\".\"id\" AS id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price, \"wren_src_invoice_lines\".invoice_id AS invoice_id FROM (SELECT invoice_lines.\"id\", invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.\"id\" AS \"id\", __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), invoices AS (SELECT \"wren_src_invoices\".\"status\" AS status, \"wren_src_invoices\".currency AS currency, \"wren_src_invoices\".issued_on AS issued_on, \"wren_src_invoices\".\"id\" AS id, \"wren_src_invoices\".customer_id AS customer_id, \"wren_src_invoices\".project_id AS project_id FROM (SELECT invoices.currency, invoices.customer_id, invoices.\"id\", invoices.issued_on, invoices.project_id, invoices.\"status\" FROM (SELECT __source.currency AS currency, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.issued_on AS issued_on, __source.project_id AS project_id, __source.\"status\" AS \"status\" FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id FROM (SELECT projects.\"id\", projects.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), invoice_metric_base AS (SELECT invoice_lines.id AS invoice_line_id, customers.name AS customer, invoices.status AS invoice_status, projects.name AS project, invoices.currency AS currency, invoices.issued_on AS invoice_issued, invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount FROM invoice_lines JOIN invoices ON invoice_lines.invoice_id = invoices.id JOIN customers ON invoices.customer_id = customers.id LEFT JOIN projects ON invoices.project_id = projects.id) SELECT DATE_TRUNC('MONTH', invoice_issued) AS invoice_issued__month, SUM(invoice_line_amount) AS invoice_amount FROM invoice_metric_base WHERE invoice_issued >= '2025-01-01' AND invoice_issued < '2025-02-01' GROUP BY 1 ORDER BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_invoice_amount_no_result",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [],
+      "latency_ms": 461.241,
+      "retrieval_latency_ms": 446.299,
+      "execution_latency_ms": 10.19,
+      "generated_sql": "WITH invoice_lines AS (SELECT \"wren_src_invoice_lines\".\"id\" AS id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price, \"wren_src_invoice_lines\".invoice_id AS invoice_id FROM (SELECT invoice_lines.\"id\", invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.\"id\" AS \"id\", __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), invoices AS (SELECT \"wren_src_invoices\".\"status\" AS status, \"wren_src_invoices\".currency AS currency, \"wren_src_invoices\".issued_on AS issued_on, \"wren_src_invoices\".\"id\" AS id, \"wren_src_invoices\".customer_id AS customer_id, \"wren_src_invoices\".project_id AS project_id FROM (SELECT invoices.currency, invoices.customer_id, invoices.\"id\", invoices.issued_on, invoices.project_id, invoices.\"status\" FROM (SELECT __source.currency AS currency, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.issued_on AS issued_on, __source.project_id AS project_id, __source.\"status\" AS \"status\" FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id FROM (SELECT projects.\"id\", projects.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), invoice_metric_base AS (SELECT invoice_lines.id AS invoice_line_id, customers.name AS customer, invoices.status AS invoice_status, projects.name AS project, invoices.currency AS currency, invoices.issued_on AS invoice_issued, invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount FROM invoice_lines JOIN invoices ON invoice_lines.invoice_id = invoices.id JOIN customers ON invoices.customer_id = customers.id LEFT JOIN projects ON invoices.project_id = projects.id) SELECT customer AS customer, SUM(invoice_line_amount) AS invoice_amount FROM invoice_metric_base WHERE customer = 'No Such Customer' GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_cost_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "project_cost": "88700.00"
+        }
+      ],
+      "latency_ms": 496.939,
+      "retrieval_latency_ms": 482.599,
+      "execution_latency_ms": 9.799,
+      "generated_sql": "WITH project_costs AS (SELECT \"wren_src_project_costs\".\"id\" AS id, \"wren_src_project_costs\".\"category\" AS category, \"wren_src_project_costs\".cost_date AS cost_date, \"wren_src_project_costs\".amount AS amount, \"wren_src_project_costs\".project_id AS project_id FROM (SELECT project_costs.amount, project_costs.\"category\", project_costs.cost_date, project_costs.\"id\", project_costs.project_id FROM (SELECT __source.amount AS amount, __source.\"category\" AS \"category\", __source.cost_date AS cost_date, __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), project_cost_metric_base AS (SELECT project_costs.id AS project_cost_id, projects.name AS project, project_costs.category AS cost_category, customers.name AS customer, departments.name AS department, project_costs.cost_date AS project_cost_date, project_costs.amount AS project_cost_amount FROM project_costs JOIN projects ON project_costs.project_id = projects.id JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id) SELECT SUM(project_cost_amount) AS project_cost FROM project_cost_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_cost_category",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "cost_category": "labor",
+          "project_cost": "77000.00"
+        },
+        {
+          "cost_category": "software",
+          "project_cost": "7500.00"
+        },
+        {
+          "cost_category": "travel",
+          "project_cost": "4200.00"
+        }
+      ],
+      "latency_ms": 496.218,
+      "retrieval_latency_ms": 483.073,
+      "execution_latency_ms": 8.721,
+      "generated_sql": "WITH project_costs AS (SELECT \"wren_src_project_costs\".\"id\" AS id, \"wren_src_project_costs\".\"category\" AS category, \"wren_src_project_costs\".cost_date AS cost_date, \"wren_src_project_costs\".amount AS amount, \"wren_src_project_costs\".project_id AS project_id FROM (SELECT project_costs.amount, project_costs.\"category\", project_costs.cost_date, project_costs.\"id\", project_costs.project_id FROM (SELECT __source.amount AS amount, __source.\"category\" AS \"category\", __source.cost_date AS cost_date, __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), project_cost_metric_base AS (SELECT project_costs.id AS project_cost_id, projects.name AS project, project_costs.category AS cost_category, customers.name AS customer, departments.name AS department, project_costs.cost_date AS project_cost_date, project_costs.amount AS project_cost_amount FROM project_costs JOIN projects ON project_costs.project_id = projects.id JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id) SELECT cost_category AS cost_category, SUM(project_cost_amount) AS project_cost FROM project_cost_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_cost_project",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "project": "Retail Analytics Modernization",
+          "project_cost": "49500.00"
+        },
+        {
+          "project": "Fleet Optimization Platform",
+          "project_cost": "39200.00"
+        }
+      ],
+      "latency_ms": 460.597,
+      "retrieval_latency_ms": 446.195,
+      "execution_latency_ms": 9.885,
+      "generated_sql": "WITH project_costs AS (SELECT \"wren_src_project_costs\".\"id\" AS id, \"wren_src_project_costs\".\"category\" AS category, \"wren_src_project_costs\".cost_date AS cost_date, \"wren_src_project_costs\".amount AS amount, \"wren_src_project_costs\".project_id AS project_id FROM (SELECT project_costs.amount, project_costs.\"category\", project_costs.cost_date, project_costs.\"id\", project_costs.project_id FROM (SELECT __source.amount AS amount, __source.\"category\" AS \"category\", __source.cost_date AS cost_date, __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), project_cost_metric_base AS (SELECT project_costs.id AS project_cost_id, projects.name AS project, project_costs.category AS cost_category, customers.name AS customer, departments.name AS department, project_costs.cost_date AS project_cost_date, project_costs.amount AS project_cost_amount FROM project_costs JOIN projects ON project_costs.project_id = projects.id JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id) SELECT project AS project, SUM(project_cost_amount) AS project_cost FROM project_cost_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_cost_month",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "project_cost_date": "2025-01-01",
+          "project_cost": "49500.00"
+        },
+        {
+          "project_cost_date": "2025-02-01",
+          "project_cost": "39200.00"
+        }
+      ],
+      "latency_ms": 549.397,
+      "retrieval_latency_ms": 503.548,
+      "execution_latency_ms": 41.277,
+      "generated_sql": "WITH project_costs AS (SELECT \"wren_src_project_costs\".\"id\" AS id, \"wren_src_project_costs\".\"category\" AS category, \"wren_src_project_costs\".cost_date AS cost_date, \"wren_src_project_costs\".amount AS amount, \"wren_src_project_costs\".project_id AS project_id FROM (SELECT project_costs.amount, project_costs.\"category\", project_costs.cost_date, project_costs.\"id\", project_costs.project_id FROM (SELECT __source.amount AS amount, __source.\"category\" AS \"category\", __source.cost_date AS cost_date, __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), projects AS (SELECT \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), project_cost_metric_base AS (SELECT project_costs.id AS project_cost_id, projects.name AS project, project_costs.category AS cost_category, customers.name AS customer, departments.name AS department, project_costs.cost_date AS project_cost_date, project_costs.amount AS project_cost_amount FROM project_costs JOIN projects ON project_costs.project_id = projects.id JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id) SELECT DATE_TRUNC('MONTH', project_cost_date) AS project_cost_date__month, SUM(project_cost_amount) AS project_cost FROM project_cost_metric_base GROUP BY 1 ORDER BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_margin_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "project_margin": "116300.0000"
+        }
+      ],
+      "latency_ms": 520.854,
+      "retrieval_latency_ms": 503.515,
+      "execution_latency_ms": 11.324,
+      "generated_sql": "WITH projects AS (SELECT \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".budget AS budget, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.budget, projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.budget AS budget, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), invoices AS (SELECT \"wren_src_invoices\".project_id AS project_id, \"wren_src_invoices\".\"id\" AS id FROM (SELECT invoices.\"id\", invoices.project_id FROM (SELECT __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), invoice_lines AS (SELECT \"wren_src_invoice_lines\".invoice_id AS invoice_id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price FROM (SELECT invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), project_costs AS (SELECT \"wren_src_project_costs\".project_id AS project_id, \"wren_src_project_costs\".amount AS amount FROM (SELECT project_costs.amount, project_costs.project_id FROM (SELECT __source.amount AS amount, __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), project_financial_metric_base AS (WITH invoice_totals AS (SELECT invoices.project_id, SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount FROM invoices JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id GROUP BY invoices.project_id), cost_totals AS (SELECT project_id, SUM(amount) AS project_cost FROM project_costs GROUP BY project_id) SELECT projects.id AS project_id, projects.name AS project, customers.name AS customer, departments.name AS department, projects.budget, COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount, COALESCE(cost_totals.project_cost, 0) AS project_cost FROM projects JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id LEFT JOIN cost_totals ON projects.id = cost_totals.project_id) SELECT SUM(invoice_amount - project_cost) AS project_margin FROM project_financial_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_project_margin_project",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "project": "Factory Data Foundation",
+          "project_margin": "0"
+        },
+        {
+          "project": "Retail Analytics Modernization",
+          "project_margin": "45500.0000"
+        },
+        {
+          "project": "Fleet Optimization Platform",
+          "project_margin": "70800.0000"
+        }
+      ],
+      "latency_ms": 451.972,
+      "retrieval_latency_ms": 434.284,
+      "execution_latency_ms": 11.518,
+      "generated_sql": "WITH projects AS (SELECT \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".budget AS budget, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.budget, projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.budget AS budget, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), invoices AS (SELECT \"wren_src_invoices\".project_id AS project_id, \"wren_src_invoices\".\"id\" AS id FROM (SELECT invoices.\"id\", invoices.project_id FROM (SELECT __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), invoice_lines AS (SELECT \"wren_src_invoice_lines\".invoice_id AS invoice_id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price FROM (SELECT invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), project_costs AS (SELECT \"wren_src_project_costs\".project_id AS project_id, \"wren_src_project_costs\".amount AS amount FROM (SELECT project_costs.amount, project_costs.project_id FROM (SELECT __source.amount AS amount, __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), project_financial_metric_base AS (WITH invoice_totals AS (SELECT invoices.project_id, SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount FROM invoices JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id GROUP BY invoices.project_id), cost_totals AS (SELECT project_id, SUM(amount) AS project_cost FROM project_costs GROUP BY project_id) SELECT projects.id AS project_id, projects.name AS project, customers.name AS customer, departments.name AS department, projects.budget, COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount, COALESCE(cost_totals.project_cost, 0) AS project_cost FROM projects JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id LEFT JOIN cost_totals ON projects.id = cost_totals.project_id) SELECT project AS project, SUM(invoice_amount - project_cost) AS project_margin FROM project_financial_metric_base GROUP BY 1 LIMIT 100"
+    },
+    {
+      "case_id": "metric_budget_utilization_total",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "budget_utilization": "6.2907801418439716"
+        }
+      ],
+      "latency_ms": 498.158,
+      "retrieval_latency_ms": 479.444,
+      "execution_latency_ms": 12.269,
+      "generated_sql": "WITH projects AS (SELECT \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".budget AS budget, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.budget, projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.budget AS budget, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), invoices AS (SELECT \"wren_src_invoices\".project_id AS project_id, \"wren_src_invoices\".\"id\" AS id FROM (SELECT invoices.\"id\", invoices.project_id FROM (SELECT __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), invoice_lines AS (SELECT \"wren_src_invoice_lines\".invoice_id AS invoice_id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price FROM (SELECT invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), project_costs AS (SELECT \"wren_src_project_costs\".project_id AS project_id, \"wren_src_project_costs\".amount AS amount FROM (SELECT project_costs.amount, project_costs.project_id FROM (SELECT __source.amount AS amount, __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), project_financial_metric_base AS (WITH invoice_totals AS (SELECT invoices.project_id, SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount FROM invoices JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id GROUP BY invoices.project_id), cost_totals AS (SELECT project_id, SUM(amount) AS project_cost FROM project_costs GROUP BY project_id) SELECT projects.id AS project_id, projects.name AS project, customers.name AS customer, departments.name AS department, projects.budget, COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount, COALESCE(cost_totals.project_cost, 0) AS project_cost FROM projects JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id LEFT JOIN cost_totals ON projects.id = cost_totals.project_id) SELECT 100.0 * SUM(project_cost) / NULLIF(SUM(budget), 0) AS budget_utilization FROM project_financial_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_budget_utilization_project_limit",
+      "passed": true,
+      "reason": "semantically_equivalent_subset",
+      "rows": [
+        {
+          "project": "Factory Data Foundation",
+          "budget_utilization": "0E-24"
+        },
+        {
+          "project": "Retail Analytics Modernization",
+          "budget_utilization": "10.3125000000000000"
+        }
+      ],
+      "latency_ms": 472.166,
+      "retrieval_latency_ms": 455.599,
+      "execution_latency_ms": 10.11,
+      "generated_sql": "WITH projects AS (SELECT \"wren_src_projects\".\"id\" AS id, \"wren_src_projects\".\"name\" AS name, \"wren_src_projects\".budget AS budget, \"wren_src_projects\".customer_id AS customer_id, \"wren_src_projects\".owning_department_id AS owning_department_id FROM (SELECT projects.budget, projects.customer_id, projects.\"id\", projects.\"name\", projects.owning_department_id FROM (SELECT __source.budget AS budget, __source.customer_id AS customer_id, __source.\"id\" AS \"id\", __source.\"name\" AS \"name\", __source.owning_department_id AS owning_department_id FROM analytics.projects AS __source) AS projects) AS \"wren_src_projects\"), customers AS (SELECT \"wren_src_customers\".\"name\" AS name, \"wren_src_customers\".\"id\" AS id FROM (SELECT customers.\"id\", customers.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.customers AS __source) AS customers) AS \"wren_src_customers\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), invoices AS (SELECT \"wren_src_invoices\".project_id AS project_id, \"wren_src_invoices\".\"id\" AS id FROM (SELECT invoices.\"id\", invoices.project_id FROM (SELECT __source.\"id\" AS \"id\", __source.project_id AS project_id FROM analytics.invoices AS __source) AS invoices) AS \"wren_src_invoices\"), invoice_lines AS (SELECT \"wren_src_invoice_lines\".invoice_id AS invoice_id, \"wren_src_invoice_lines\".quantity AS quantity, \"wren_src_invoice_lines\".unit_price AS unit_price FROM (SELECT invoice_lines.invoice_id, invoice_lines.quantity, invoice_lines.unit_price FROM (SELECT __source.invoice_id AS invoice_id, __source.quantity AS quantity, __source.unit_price AS unit_price FROM analytics.invoice_lines AS __source) AS invoice_lines) AS \"wren_src_invoice_lines\"), project_costs AS (SELECT \"wren_src_project_costs\".project_id AS project_id, \"wren_src_project_costs\".amount AS amount FROM (SELECT project_costs.amount, project_costs.project_id FROM (SELECT __source.amount AS amount, __source.project_id AS project_id FROM analytics.project_costs AS __source) AS project_costs) AS \"wren_src_project_costs\"), project_financial_metric_base AS (WITH invoice_totals AS (SELECT invoices.project_id, SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount FROM invoices JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id GROUP BY invoices.project_id), cost_totals AS (SELECT project_id, SUM(amount) AS project_cost FROM project_costs GROUP BY project_id) SELECT projects.id AS project_id, projects.name AS project, customers.name AS customer, departments.name AS department, projects.budget, COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount, COALESCE(cost_totals.project_cost, 0) AS project_cost FROM projects JOIN customers ON projects.customer_id = customers.id JOIN departments ON projects.owning_department_id = departments.id LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id LEFT JOIN cost_totals ON projects.id = cost_totals.project_id) SELECT project AS project, 100.0 * SUM(project_cost) / NULLIF(SUM(budget), 0) AS budget_utilization FROM project_financial_metric_base GROUP BY 1 LIMIT 2"
+    },
+    {
+      "case_id": "metric_active_headcount_repeated",
+      "passed": true,
+      "reason": "semantically_equivalent",
+      "rows": [
+        {
+          "active_headcount": 10
+        }
+      ],
+      "latency_ms": 494.903,
+      "retrieval_latency_ms": 485.695,
+      "execution_latency_ms": 6.207,
+      "generated_sql": "WITH employees AS (SELECT \"wren_src_employees\".\"id\" AS id, \"wren_src_employees\".\"status\" AS status, \"wren_src_employees\".currency AS currency, \"wren_src_employees\".salary AS salary, \"wren_src_employees\".department_id AS department_id FROM (SELECT employees.currency, employees.department_id, employees.\"id\", employees.salary, employees.\"status\" FROM (SELECT __source.currency AS currency, __source.department_id AS department_id, __source.\"id\" AS \"id\", __source.salary AS salary, __source.\"status\" AS \"status\" FROM analytics.employees AS __source) AS employees) AS \"wren_src_employees\"), departments AS (SELECT \"wren_src_departments\".\"name\" AS name, \"wren_src_departments\".\"id\" AS id FROM (SELECT departments.\"id\", departments.\"name\" FROM (SELECT __source.\"id\" AS \"id\", __source.\"name\" AS \"name\" FROM analytics.departments AS __source) AS departments) AS \"wren_src_departments\"), workforce_metric_base AS (SELECT employees.id AS employee_id, departments.name AS department, employees.status AS employment_status, employees.currency AS currency, employees.salary AS annual_base_salary, CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count FROM employees JOIN departments ON employees.department_id = departments.id) SELECT SUM(active_employee_count) AS active_headcount FROM workforce_metric_base LIMIT 100"
+    },
+    {
+      "case_id": "metric_invalid_metric",
+      "passed": true,
+      "reason": "expected_invalid_metric_query",
+      "rows": [],
+      "latency_ms": 0.007,
+      "retrieval_latency_ms": null,
+      "execution_latency_ms": null,
+      "generated_sql": null
+    },
+    {
+      "case_id": "metric_invalid_dimension",
+      "passed": true,
+      "reason": "expected_invalid_metric_query",
+      "rows": [],
+      "latency_ms": 0.005,
+      "retrieval_latency_ms": null,
+      "execution_latency_ms": null,
+      "generated_sql": null
+    },
+    {
+      "case_id": "metric_invalid_filter",
+      "passed": true,
+      "reason": "expected_invalid_metric_query",
+      "rows": [],
+      "latency_ms": 0.004,
+      "retrieval_latency_ms": null,
+      "execution_latency_ms": null,
+      "generated_sql": null
+    }
+  ]
+}

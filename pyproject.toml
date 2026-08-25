@@ -11,16 +11,29 @@ requires-python = ">=3.12"
 dependencies = [
     "asyncpg>=0.30.0",
     "fastapi>=0.115.0",
+    "httpx>=0.28.0",
     "langgraph>=0.2.60",
-    "litellm>=1.55.0",
+    "langgraph-checkpoint-postgres>=3.1,<4",
+    "litellm[google]>=1.98.0",
+    "mcp>=1.19,<2",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
+    "PyJWT[crypto]>=2.10,<3",
+    "psycopg[binary,pool]>=3.2,<4",
     "sqlglot>=26.0.0",
     "uvicorn[standard]>=0.34.0",
 ]
 
 [project.scripts]
+enterprise-data-api = "app.runtime:main"
+enterprise-data-chat = "app.chat_cli:main"
 enterprise-data-eval = "app.evals.cli:main"
+enterprise-data-qwen-diagnostic = "app.evals.diagnostic:main"
+enterprise-data-semantic-compare = "app.semantic.compare:main"
+enterprise-data-semantic-ab = "app.evals.semantic_ab:main"
+enterprise-data-metrics = "app.metrics.evaluation:main"
+enterprise-data-router-eval = "app.routing.evaluation:main"
+enterprise-data-sql-validation-eval = "app.security.evaluation:main"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
@@ -28,7 +41,6 @@ include = ["app*"]
 [project.optional-dependencies]
 dev = [
     "duckdb>=1.2.0",
-    "httpx>=0.28.0",
     "mypy>=1.14.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
@@ -40,7 +52,11 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "cloud: requires explicit opt-in and a configured cloud LLM credential",
-    "postgres: requires the Dockerized PostgreSQL service",
+    "local_llm: requires explicit opt-in and a configured local model service",
+    "postgres: requires explicit opt-in and a configured PostgreSQL service",
+    "opa: requires explicit opt-in and a configured OPA service",
+    "wren: requires explicit opt-in and a configured Wren context service",
+    "cube: requires explicit opt-in and a configured Cube Core service",
 ]
 
 [tool.ruff]
@@ -59,5 +75,5 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["asyncpg", "litellm"]
+module = ["asyncpg", "litellm", "wren.*", "wren_core"]
 ignore_missing_imports = true

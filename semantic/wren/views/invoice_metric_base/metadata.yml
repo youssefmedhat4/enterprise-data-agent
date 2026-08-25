@@ -1,0 +1,16 @@
+name: invoice_metric_base
+statement: |
+  SELECT
+    invoice_lines.id AS invoice_line_id,
+    customers.name AS customer,
+    invoices.status AS invoice_status,
+    projects.name AS project,
+    invoices.currency AS currency,
+    invoices.issued_on AS invoice_issued,
+    invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount
+  FROM invoice_lines
+  JOIN invoices ON invoice_lines.invoice_id = invoices.id
+  JOIN customers ON invoices.customer_id = customers.id
+  LEFT JOIN projects ON invoices.project_id = projects.id
+properties:
+  description: Reviewed invoice-line grain used by governed invoice metrics.

@@ -1,0 +1,29 @@
+name: employee_project_assignments
+table_reference:
+  schema: analytics
+  table: employee_project_assignments
+primary_key: [employee_id, project_id, assigned_from]
+columns:
+  - name: employee_id
+    type: INTEGER
+    is_primary_key: true
+    not_null: true
+  - name: project_id
+    type: INTEGER
+    is_primary_key: true
+    not_null: true
+  - name: assigned_from
+    type: DATE
+    is_primary_key: true
+    not_null: true
+  - name: assigned_to
+    type: DATE
+  - name: allocation_percent
+    type: DECIMAL
+    not_null: true
+  - name: billable
+    type: BOOLEAN
+    not_null: true
+properties:
+  description: Employee-to-project assignments, allocation, dates, and billable status.
+  aliases: [project assignment, project assignments, staffing, allocation, تخصيص]

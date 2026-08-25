@@ -26,5 +26,6 @@ Ambiguous cases pass only when the graph returns a clarification with no SQL exe
 grounding compares numbers in the answer with values in executed or fixture result rows.
 
 Accuracy is also grouped by category, difficulty, and language. Deterministic retries are reported
-as zero; cloud retry count remains `null` because LiteLLM does not expose the actual internal retry
-count through the current adapter.
+as zero. Cloud token usage and cost are recorded when LiteLLM supplies them. Retry count remains
+`null` when the provider path does not expose actual retries; the report never substitutes the
+configured retry maximum for observed retries.

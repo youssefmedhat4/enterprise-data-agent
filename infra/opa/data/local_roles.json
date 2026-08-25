@@ -1,0 +1,46 @@
+{
+  "roles": {
+    "analyst": {
+      "schemas": ["analytics"],
+      "tables": [
+        "analytics.departments",
+        "analytics.employees",
+        "analytics.customers",
+        "analytics.projects",
+        "analytics.employee_project_assignments",
+        "analytics.invoices",
+        "analytics.invoice_lines",
+        "analytics.project_costs"
+      ],
+      "denied_columns": {
+        "analytics.employees": ["salary"]
+      },
+      "metrics": [
+        "active_headcount",
+        "invoice_amount",
+        "project_cost",
+        "project_margin",
+        "budget_utilization"
+      ],
+      "debug": false
+    },
+    "hr_analyst": {
+      "schemas": ["analytics"],
+      "tables": [
+        "analytics.departments",
+        "analytics.employees",
+        "analytics.payroll"
+      ],
+      "denied_columns": {},
+      "metrics": ["active_headcount", "annual_base_payroll", "net_payroll"],
+      "debug": false
+    },
+    "admin_analytics": {
+      "schemas": ["*"],
+      "tables": ["*"],
+      "denied_columns": {},
+      "metrics": ["*"],
+      "debug": true
+    }
+  }
+}

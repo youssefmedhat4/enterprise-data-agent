@@ -1,0 +1,36 @@
+{
+  "status": "not_run",
+  "reason": "local_model_out_of_memory_during_smoke_test",
+  "dataset_sha256": "94a6f36eee2ae5a7d9ca5a8360888762f745862f0628025ba2e003e2a8e65f55",
+  "dataset_cases": 50,
+  "database_backend": "duckdb",
+  "evaluation_mode": "sql",
+  "llm_backend": "configured",
+  "configured_models": {
+    "analytics-general": "ollama_chat/qwen3.6:27b",
+    "sql-reasoner": "ollama_chat/qwen3.6:27b"
+  },
+  "ollama": {
+    "version": "0.32.15",
+    "installed_tag": "qwen3.6:27b",
+    "model_parameters": "27.8B",
+    "quantization": "Q4_K_M",
+    "model_loaded": false,
+    "gpu_acceleration_active": false
+  },
+  "smoke_test": {
+    "provider_reached": true,
+    "model_request_count": 1,
+    "outcome": "infrastructure_failure",
+    "infrastructure_error": "out_of_memory"
+  },
+  "benchmark": {
+    "model_call_count": 0,
+    "scored_cases": 0,
+    "metrics": null,
+    "failed_case_ids": [],
+    "infrastructure_errors": {
+      "out_of_memory": 1
+    }
+  }
+}

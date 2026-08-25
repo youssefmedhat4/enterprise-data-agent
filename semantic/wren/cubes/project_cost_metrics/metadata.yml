@@ -1,0 +1,29 @@
+name: project_cost_metrics
+base_object: project_cost_metric_base
+measures:
+  - name: project_cost
+    expression: SUM(project_cost_amount)
+    type: DECIMAL
+dimensions:
+  - name: project
+    expression: project
+    type: VARCHAR
+  - name: cost_category
+    expression: cost_category
+    type: VARCHAR
+  - name: customer
+    expression: customer
+    type: VARCHAR
+  - name: department
+    expression: department
+    type: VARCHAR
+time_dimensions:
+  - name: project_cost_date
+    expression: project_cost_date
+    type: DATE
+hierarchies:
+  organization: [department, project]
+  period: [project_cost_date]
+properties:
+  description: Certified project cost metrics.
+  definition_version: "1.0"

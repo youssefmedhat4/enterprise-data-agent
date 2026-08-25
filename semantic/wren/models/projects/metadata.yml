@@ -1,0 +1,74 @@
+name: projects
+table_reference:
+  schema: analytics
+  table: projects
+primary_key: id
+columns:
+  - name: id
+    type: INTEGER
+    is_primary_key: true
+    not_null: true
+  - name: project_code
+    type: VARCHAR
+    not_null: true
+  - name: customer_id
+    type: INTEGER
+    not_null: true
+  - name: owning_department_id
+    type: INTEGER
+    not_null: true
+  - name: name
+    type: VARCHAR
+    not_null: true
+  - name: status
+    type: VARCHAR
+    not_null: true
+    properties:
+      accepted_values: [planned, active, completed, cancelled]
+  - name: start_date
+    type: DATE
+    not_null: true
+    properties:
+      description: Inclusive project activity start date.
+  - name: end_date
+    type: DATE
+    properties:
+      description: Inclusive project activity end date; null for no recorded end date.
+  - name: budget
+    type: DECIMAL
+    not_null: true
+  - name: is_active_project
+    type: BOOLEAN
+    is_calculated: true
+    expression: "LOWER(status) = 'active'"
+    properties:
+      description: True when the current project status is active.
+      aliases: [active project, active projects, المشاريع النشطة]
+properties:
+  description: Customer projects, ownership, status, dates, and approved budget.
+  aliases: [project, projects, engagement, مشروع, المشاريع]
+  definitions:
+    - identifier: active_project_status
+      name: Active project by status
+      description: A currently active project has the lowercase status value active.
+      expression: "LOWER(analytics.projects.status) = 'active'"
+      tables: [analytics.projects]
+      aliases: [active project, active projects, المشاريع النشطة]
+    - identifier: project_active_on_date
+      name: Project active on a date
+      description: Historical activity uses project dates and does not require current active status.
+      expression: start_date <= target_date AND (end_date IS NULL OR end_date >= target_date)
+      tables: [analytics.projects]
+      aliases: [active on, based on their dates, نشط في تاريخ]
+    - identifier: budget_utilization
+      name: Project budget utilization
+      description: Total project cost divided by approved project budget, multiplied by 100.
+      expression: 100 * COALESCE(SUM(project_costs.amount), 0) / projects.budget
+      tables: [analytics.projects, analytics.project_costs]
+      aliases: [budget utilization, percentage of budget, نسبة الميزانية]
+    - identifier: project_margin
+      name: Project margin
+      description: Invoiced line amount minus project costs for the same project.
+      expression: SUM(invoice_lines.quantity * invoice_lines.unit_price) - SUM(project_costs.amount)
+      tables: [analytics.projects, analytics.invoices, analytics.invoice_lines, analytics.project_costs]
+      aliases: [project margin, project profit, هامش المشروع]

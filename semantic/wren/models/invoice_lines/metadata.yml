@@ -1,0 +1,39 @@
+name: invoice_lines
+table_reference:
+  schema: analytics
+  table: invoice_lines
+primary_key: id
+columns:
+  - name: id
+    type: BIGINT
+    is_primary_key: true
+    not_null: true
+  - name: invoice_id
+    type: BIGINT
+    not_null: true
+  - name: description
+    type: VARCHAR
+    not_null: true
+  - name: quantity
+    type: DECIMAL
+    not_null: true
+  - name: unit_price
+    type: DECIMAL
+    not_null: true
+  - name: line_amount
+    type: DECIMAL
+    is_calculated: true
+    expression: quantity * unit_price
+    properties:
+      description: Extended invoice-line amount before aggregation.
+      aliases: [invoice amount, line total, invoiced amount, قيمة الفاتورة]
+properties:
+  description: Detailed invoice line items used to calculate invoice amount.
+  aliases: [invoice line, invoice lines, invoice amount, invoiced revenue, قيمة الفاتورة]
+  definitions:
+    - identifier: invoice_amount
+      name: Invoiced amount
+      description: Invoice amount is quantity multiplied by unit price, summed across lines.
+      expression: SUM(analytics.invoice_lines.quantity * analytics.invoice_lines.unit_price)
+      tables: [analytics.invoices, analytics.invoice_lines]
+      aliases: [invoice amount, invoice total, invoiced revenue, قيمة الفاتورة]

@@ -1,0 +1,43 @@
+cubes:
+  - name: invoice_metrics
+    sql: |
+      SELECT
+        invoice_lines.id AS invoice_line_id,
+        customers.name AS customer,
+        invoices.status AS invoice_status,
+        projects.name AS project,
+        invoices.currency AS currency,
+        invoices.issued_on AS invoice_issued,
+        invoice_lines.quantity * invoice_lines.unit_price AS invoice_line_amount
+      FROM analytics.invoice_lines AS invoice_lines
+      JOIN analytics.invoices AS invoices ON invoice_lines.invoice_id = invoices.id
+      JOIN analytics.customers AS customers ON invoices.customer_id = customers.id
+      LEFT JOIN analytics.projects AS projects ON invoices.project_id = projects.id
+
+    measures:
+      - name: invoice_amount
+        sql: invoice_line_amount
+        type: sum
+
+    dimensions:
+      - name: invoice_line_id
+        sql: invoice_line_id
+        type: number
+        primary_key: true
+      - name: customer
+        sql: customer
+        type: string
+      - name: invoice_status
+        sql: invoice_status
+        type: string
+      - name: project
+        sql: project
+        type: string
+      - name: currency
+        sql: currency
+        type: string
+      - name: invoice_issued
+        sql: invoice_issued
+        type: time
+
+    description: Certified invoice-line amount metrics, definition version 1.0.

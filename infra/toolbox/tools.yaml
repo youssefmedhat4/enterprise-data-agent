@@ -1,0 +1,21 @@
+kind: source
+name: enterprise-postgres
+type: postgres
+host: ${TOOLBOX_POSTGRES_HOST}
+port: ${TOOLBOX_POSTGRES_PORT}
+database: ${TOOLBOX_POSTGRES_DATABASE}
+user: ${TOOLBOX_POSTGRES_USER}
+password: ${TOOLBOX_POSTGRES_PASSWORD}
+connectTimeout: 10
+---
+kind: tool
+name: execute_sql
+type: postgres-execute-sql
+source: enterprise-postgres
+description: Execute one application-validated SQL statement using the read-only analytics role.
+---
+kind: tool
+name: list_tables
+type: postgres-list-tables
+source: enterprise-postgres
+description: Return detailed physical PostgreSQL table metadata for schema discovery.

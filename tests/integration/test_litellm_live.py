@@ -1,38 +1,24 @@
-import os
-
 import pytest
 
 from app.config import Settings
+from app.llm.factory import build_llm_gateway
 from app.llm.gateway import SQLGeneration
-from app.llm.litellm_gateway import LiteLLMGateway
 
 
 @pytest.mark.cloud
 @pytest.mark.asyncio
-async def test_live_litellm_structured_output() -> None:
-    if os.getenv("RUN_CLOUD_LLM_TESTS") != "1":
-        pytest.skip("Set RUN_CLOUD_LLM_TESTS=1 to allow a paid cloud LLM request")
-
+async def test_live_gemini_litellm_structured_output() -> None:
     settings = Settings()
-    if settings.llm_provider != "litellm" or settings.llm_model_sql_reasoner.startswith("fake/"):
-        pytest.skip("Configure LLM_PROVIDER and LLM_MODEL_SQL_REASONER for a cloud model")
-    credential_names = (
-        "ANTHROPIC_API_KEY",
-        "AZURE_API_KEY",
-        "COHERE_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "MISTRAL_API_KEY",
-        "OPENAI_API_KEY",
-    )
-    if not any(os.getenv(name) for name in credential_names):
-        pytest.skip("No supported cloud LLM credential is configured")
+    if not settings.run_cloud_llm_tests:
+        pytest.skip("Set RUN_CLOUD_LLM_TESTS=1 to allow a live cloud LLM request")
+    if settings.llm_provider != "litellm" or not settings.llm_model_sql_reasoner.startswith(
+        "gemini/"
+    ):
+        pytest.skip("Configure the sql-reasoner alias with a Gemini LiteLLM model")
+    if settings.gemini_api_key is None or not settings.gemini_api_key.get_secret_value():
+        pytest.skip("GEMINI_API_KEY is not configured")
 
-    gateway = LiteLLMGateway(
-        settings.model_aliases,
-        timeout_seconds=settings.llm_timeout_seconds,
-        max_retries=settings.llm_max_retries,
-    )
+    gateway = build_llm_gateway(settings)
     result = await gateway.generate_structured(
         model_alias="sql-reasoner",
         system="Return one safe PostgreSQL SELECT statement as structured output.",

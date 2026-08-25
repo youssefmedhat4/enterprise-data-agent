@@ -1,0 +1,13 @@
+name: workforce_metric_base
+statement: |
+  SELECT
+    employees.id AS employee_id,
+    departments.name AS department,
+    employees.status AS employment_status,
+    employees.currency AS currency,
+    employees.salary AS annual_base_salary,
+    CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count
+  FROM employees
+  JOIN departments ON employees.department_id = departments.id
+properties:
+  description: Reviewed employee grain used by governed workforce metrics.

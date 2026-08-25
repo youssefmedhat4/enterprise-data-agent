@@ -1,0 +1,64 @@
+cubes:
+  - name: project_financial_metrics
+    sql: |
+      WITH invoice_totals AS (
+        SELECT
+          invoices.project_id,
+          SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount
+        FROM analytics.invoices AS invoices
+        JOIN analytics.invoice_lines AS invoice_lines
+          ON invoices.id = invoice_lines.invoice_id
+        GROUP BY invoices.project_id
+      ),
+      cost_totals AS (
+        SELECT project_id, SUM(amount) AS project_cost
+        FROM analytics.project_costs
+        GROUP BY project_id
+      )
+      SELECT
+        projects.id AS project_id,
+        projects.name AS project,
+        customers.name AS customer,
+        departments.name AS department,
+        projects.budget,
+        COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount,
+        COALESCE(cost_totals.project_cost, 0) AS project_cost
+      FROM analytics.projects AS projects
+      JOIN analytics.customers AS customers ON projects.customer_id = customers.id
+      JOIN analytics.departments AS departments
+        ON projects.owning_department_id = departments.id
+      LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id
+      LEFT JOIN cost_totals ON projects.id = cost_totals.project_id
+
+    measures:
+      - name: project_margin
+        sql: invoice_amount - project_cost
+        type: sum
+      - name: project_cost_total
+        sql: project_cost
+        type: sum
+        public: false
+      - name: project_budget_total
+        sql: budget
+        type: sum
+        public: false
+      - name: budget_utilization
+        sql: "100.0 * {project_cost_total} / NULLIF({project_budget_total}, 0)"
+        type: number
+
+    dimensions:
+      - name: project_id
+        sql: project_id
+        type: number
+        primary_key: true
+      - name: project
+        sql: project
+        type: string
+      - name: customer
+        sql: customer
+        type: string
+      - name: department
+        sql: department
+        type: string
+
+    description: Certified project-grain financial metrics, definition version 1.0.

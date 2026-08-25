@@ -1,0 +1,30 @@
+name: project_financial_metric_base
+statement: |
+  WITH invoice_totals AS (
+    SELECT
+      invoices.project_id,
+      SUM(invoice_lines.quantity * invoice_lines.unit_price) AS invoice_amount
+    FROM invoices
+    JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id
+    GROUP BY invoices.project_id
+  ),
+  cost_totals AS (
+    SELECT project_id, SUM(amount) AS project_cost
+    FROM project_costs
+    GROUP BY project_id
+  )
+  SELECT
+    projects.id AS project_id,
+    projects.name AS project,
+    customers.name AS customer,
+    departments.name AS department,
+    projects.budget,
+    COALESCE(invoice_totals.invoice_amount, 0) AS invoice_amount,
+    COALESCE(cost_totals.project_cost, 0) AS project_cost
+  FROM projects
+  JOIN customers ON projects.customer_id = customers.id
+  JOIN departments ON projects.owning_department_id = departments.id
+  LEFT JOIN invoice_totals ON projects.id = invoice_totals.project_id
+  LEFT JOIN cost_totals ON projects.id = cost_totals.project_id
+properties:
+  description: One reviewed row per project after each financial fact is pre-aggregated.

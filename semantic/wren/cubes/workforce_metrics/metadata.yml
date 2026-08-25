@@ -1,0 +1,24 @@
+name: workforce_metrics
+base_object: workforce_metric_base
+measures:
+  - name: active_headcount
+    expression: SUM(active_employee_count)
+    type: BIGINT
+  - name: annual_base_payroll
+    expression: SUM(annual_base_salary)
+    type: DECIMAL
+dimensions:
+  - name: department
+    expression: department
+    type: VARCHAR
+  - name: employment_status
+    expression: employment_status
+    type: VARCHAR
+  - name: currency
+    expression: currency
+    type: VARCHAR
+hierarchies:
+  organization: [department]
+properties:
+  description: Certified employee roster metrics.
+  definition_version: "1.0"

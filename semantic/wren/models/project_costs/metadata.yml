@@ -1,0 +1,39 @@
+name: project_costs
+table_reference:
+  schema: analytics
+  table: project_costs
+primary_key: id
+columns:
+  - name: id
+    type: BIGINT
+    is_primary_key: true
+    not_null: true
+  - name: project_id
+    type: INTEGER
+    not_null: true
+  - name: cost_date
+    type: DATE
+    not_null: true
+    properties:
+      description: Accounting date used for project-cost time filters.
+  - name: category
+    type: VARCHAR
+    not_null: true
+    properties:
+      accepted_values: [labor, software, travel, vendor]
+  - name: amount
+    type: DECIMAL
+    not_null: true
+  - name: description
+    type: VARCHAR
+    not_null: true
+properties:
+  description: Dated project cost entries by category.
+  aliases: [project cost, project costs, cost category, costs, تكاليف]
+  definitions:
+    - identifier: project_cost
+      name: Project cost
+      description: Project cost is the sum of cost-entry amounts using cost_date for periods.
+      expression: SUM(analytics.project_costs.amount)
+      tables: [analytics.projects, analytics.project_costs]
+      aliases: [project cost, project costs, cost categories, تكاليف]

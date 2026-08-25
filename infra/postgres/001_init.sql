@@ -186,14 +186,25 @@ COMMENT ON TABLE analytics.departments IS 'Enterprise departments and cost cente
 COMMENT ON TABLE analytics.employees IS 'Synthetic employee roster and annual base salaries.';
 COMMENT ON TABLE analytics.payroll IS 'Historical monthly synthetic payroll facts.';
 
-CREATE ROLE eda_readonly LOGIN PASSWORD :'eda_readonly_password';
+CREATE ROLE eda_readonly
+    LOGIN
+    PASSWORD :'eda_readonly_password'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    NOREPLICATION
+    NOBYPASSRLS;
 ALTER ROLE eda_readonly SET default_transaction_read_only = on;
+REVOKE CREATE, TEMPORARY ON DATABASE enterprise_analytics FROM eda_readonly;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON SCHEMA analytics FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA analytics FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA analytics FROM eda_readonly;
+REVOKE CREATE ON SCHEMA analytics FROM eda_readonly;
 GRANT CONNECT ON DATABASE enterprise_analytics TO eda_readonly;
 GRANT USAGE ON SCHEMA analytics TO eda_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO eda_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA analytics REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA analytics GRANT SELECT ON TABLES TO eda_readonly;
 
 COMMIT;

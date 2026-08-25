@@ -1,2 +1,1 @@
 """Database gateway implementations."""
-

@@ -1,0 +1,16 @@
+name: project_cost_metric_base
+statement: |
+  SELECT
+    project_costs.id AS project_cost_id,
+    projects.name AS project,
+    project_costs.category AS cost_category,
+    customers.name AS customer,
+    departments.name AS department,
+    project_costs.cost_date AS project_cost_date,
+    project_costs.amount AS project_cost_amount
+  FROM project_costs
+  JOIN projects ON project_costs.project_id = projects.id
+  JOIN customers ON projects.customer_id = customers.id
+  JOIN departments ON projects.owning_department_id = departments.id
+properties:
+  description: Reviewed cost-entry grain used by governed project cost metrics.

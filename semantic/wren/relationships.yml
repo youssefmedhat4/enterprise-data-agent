@@ -1,0 +1,41 @@
+relationships:
+  - name: employees_departments
+    models: [employees, departments]
+    join_type: MANY_TO_ONE
+    condition: employees.department_id = departments.id
+  - name: payroll_employees
+    models: [payroll, employees]
+    join_type: MANY_TO_ONE
+    condition: payroll.employee_id = employees.id
+  - name: projects_customers
+    models: [projects, customers]
+    join_type: MANY_TO_ONE
+    condition: projects.customer_id = customers.id
+  - name: projects_departments
+    models: [projects, departments]
+    join_type: MANY_TO_ONE
+    condition: projects.owning_department_id = departments.id
+  - name: assignments_employees
+    models: [employee_project_assignments, employees]
+    join_type: MANY_TO_ONE
+    condition: employee_project_assignments.employee_id = employees.id
+  - name: assignments_projects
+    models: [employee_project_assignments, projects]
+    join_type: MANY_TO_ONE
+    condition: employee_project_assignments.project_id = projects.id
+  - name: invoices_customers
+    models: [invoices, customers]
+    join_type: MANY_TO_ONE
+    condition: invoices.customer_id = customers.id
+  - name: invoices_projects
+    models: [invoices, projects]
+    join_type: MANY_TO_ONE
+    condition: invoices.project_id = projects.id
+  - name: invoice_lines_invoices
+    models: [invoice_lines, invoices]
+    join_type: MANY_TO_ONE
+    condition: invoice_lines.invoice_id = invoices.id
+  - name: project_costs_projects
+    models: [project_costs, projects]
+    join_type: MANY_TO_ONE
+    condition: project_costs.project_id = projects.id

@@ -1,0 +1,25 @@
+name: project_financial_metrics
+base_object: project_financial_metric_base
+measures:
+  - name: project_margin
+    expression: SUM(invoice_amount - project_cost)
+    type: DECIMAL
+  - name: budget_utilization
+    expression: 100.0 * SUM(project_cost) / NULLIF(SUM(budget), 0)
+    type: DECIMAL
+dimensions:
+  - name: project
+    expression: project
+    type: VARCHAR
+  - name: customer
+    expression: customer
+    type: VARCHAR
+  - name: department
+    expression: department
+    type: VARCHAR
+hierarchies:
+  organization: [department, project]
+  customer_project: [customer, project]
+properties:
+  description: Certified project-grain margin and budget utilization metrics.
+  definition_version: "1.0"

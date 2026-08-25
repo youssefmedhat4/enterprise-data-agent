@@ -1,0 +1,447 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ============================================================================
+ * INSTRUMENT — design system for the Enterprise Data Agent
+ * ============================================================================
+ *
+ * Two states, one language:
+ *
+ *   CONSOLE  the empty workspace. Expressive: an ambient field, a luminous
+ *            composer, generous space. It should feel like powering on a
+ *            precision instrument.
+ *
+ *   LEDGER   an active analysis. Calm and typographic. Chrome recedes, numbers
+ *            grow, hairlines replace containers, and the data dominates.
+ *
+ * Guiding rule, borrowed from Linear: not every element carries equal weight.
+ * What the user is working on stays in focus; orientation and navigation
+ * recede until asked for.
+ * ============================================================================
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Literal names: @theme inline resolves at parse time, so a var() reference
+     to a Next.js font variable would never resolve. Arabic falls through to
+     Noto Sans Arabic because Geist carries no Arabic glyphs. */
+  --font-sans: "Geist", "Geist Fallback", "Noto Sans Arabic",
+    "Noto Sans Arabic Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  /* Instrument-specific surfaces */
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-hairline: var(--hairline);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.6);
+  --radius-2xl: calc(var(--radius) * 2.2);
+  --radius-3xl: calc(var(--radius) * 3);
+  --radius-4xl: calc(var(--radius) * 3.6);
+}
+
+/* ---------------------------------------------------------------- LIGHT --- */
+
+:root {
+  --radius: 0.5rem;
+
+  /* Canvas sits below panels. Keeping these distinct is what lets a surface
+     read as a raised object without needing a heavy border or a shadow. */
+  --background: oklch(0.971 0.004 250);
+  --surface: oklch(1 0 0);
+  --surface-raised: oklch(0.984 0.003 250);
+  --foreground: oklch(0.19 0.015 258);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.19 0.015 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.19 0.015 258);
+
+  /* One accent. A luminous, slightly cyan-leaning blue — reads as instrument
+     signal rather than corporate navy or AI-template indigo. */
+  --primary: oklch(0.537 0.155 245);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.965 0.005 250);
+  --secondary-foreground: oklch(0.27 0.015 258);
+  --muted: oklch(0.968 0.004 250);
+  --muted-foreground: oklch(0.47 0.016 256);
+  --accent: oklch(0.955 0.018 245);
+  --accent-foreground: oklch(0.33 0.07 245);
+
+  --destructive: oklch(0.52 0.2 27);
+  --success: oklch(0.5 0.13 158);
+  --warning: oklch(0.55 0.13 68);
+  --info: oklch(0.537 0.155 245);
+
+  --border: oklch(0.9 0.006 252);
+  /* `border-strong` and `input` carry control boundaries, so they clear the
+     3:1 non-text contrast bar. `border`/`hairline` are decorative separators
+     between already-distinct surfaces and stay quiet by design. */
+  --border-strong: oklch(0.63 0.012 252);
+  --hairline: oklch(0.925 0.005 252);
+  --input: oklch(0.63 0.012 252);
+  --ring: oklch(0.537 0.155 245);
+
+  /* Categorical series. Accent first; every chart reuses this order so a
+     series keeps its colour across the whole workspace. */
+  --chart-1: oklch(0.537 0.155 245);
+  --chart-2: oklch(0.6 0.115 195);
+  --chart-3: oklch(0.58 0.13 152);
+  --chart-4: oklch(0.66 0.14 62);
+  --chart-5: oklch(0.56 0.17 18);
+  --chart-6: oklch(0.52 0.13 300);
+
+  --sidebar: oklch(0.982 0.003 250);
+  --sidebar-foreground: oklch(0.19 0.015 258);
+  --sidebar-primary: oklch(0.537 0.155 245);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.945 0.008 250);
+  --sidebar-accent-foreground: oklch(0.22 0.015 258);
+  --sidebar-border: oklch(0.915 0.005 252);
+  --sidebar-ring: oklch(0.537 0.155 245);
+
+  /* Ambient field — console state only. Kept far below any data surface. */
+  --ambient-a: oklch(0.55 0.155 245 / 0.16);
+  --ambient-b: oklch(0.6 0.115 195 / 0.12);
+  --ambient-c: oklch(0.52 0.13 300 / 0.085);
+  --grid-line: oklch(0.19 0.015 258 / 0.038);
+
+  --shadow-raise: 0 1px 2px oklch(0.19 0.015 258 / 0.05);
+  --shadow-float:
+    0 1px 2px oklch(0.19 0.015 258 / 0.06),
+    0 8px 24px -6px oklch(0.19 0.015 258 / 0.1);
+  --shadow-overlay:
+    0 1px 3px oklch(0.19 0.015 258 / 0.08),
+    0 16px 48px -12px oklch(0.19 0.015 258 / 0.18);
+  --glow-accent: 0 0 0 1px oklch(0.55 0.155 245 / 0.28),
+    0 0 28px -6px oklch(0.55 0.155 245 / 0.3);
+}
+
+/* ----------------------------------------------------------------- DARK --- */
+
+.dark {
+  /* Deep slate-blue rather than neutral black — the base reads as instrument
+     housing, and lets the accent glow without turning neon. */
+  --background: oklch(0.165 0.012 260);
+  --surface: oklch(0.196 0.013 260);
+  --surface-raised: oklch(0.225 0.014 260);
+  --foreground: oklch(0.965 0.003 250);
+
+  --card: oklch(0.196 0.013 260);
+  --card-foreground: oklch(0.965 0.003 250);
+  --popover: oklch(0.225 0.014 260);
+  --popover-foreground: oklch(0.965 0.003 250);
+
+  --primary: oklch(0.72 0.135 242);
+  --primary-foreground: oklch(0.16 0.02 260);
+
+  --secondary: oklch(0.255 0.014 260);
+  --secondary-foreground: oklch(0.965 0.003 250);
+  --muted: oklch(0.245 0.013 260);
+  --muted-foreground: oklch(0.735 0.014 255);
+  --accent: oklch(0.28 0.03 250);
+  --accent-foreground: oklch(0.9 0.05 242);
+
+  --destructive: oklch(0.71 0.16 24);
+  --success: oklch(0.75 0.14 160);
+  --warning: oklch(0.79 0.13 76);
+  --info: oklch(0.72 0.135 242);
+
+  --border: oklch(0.3 0.013 260);
+  /* Same rule as light: control boundaries clear 3:1, separators stay quiet. */
+  --border-strong: oklch(0.505 0.018 260);
+  --hairline: oklch(0.265 0.012 260);
+  --input: oklch(0.505 0.018 260);
+  --ring: oklch(0.72 0.135 242);
+
+  --chart-1: oklch(0.72 0.135 242);
+  --chart-2: oklch(0.76 0.11 194);
+  --chart-3: oklch(0.75 0.13 156);
+  --chart-4: oklch(0.8 0.13 74);
+  --chart-5: oklch(0.72 0.15 20);
+  --chart-6: oklch(0.7 0.12 300);
+
+  --sidebar: oklch(0.183 0.012 260);
+  --sidebar-foreground: oklch(0.965 0.003 250);
+  --sidebar-primary: oklch(0.72 0.135 242);
+  --sidebar-primary-foreground: oklch(0.16 0.02 260);
+  --sidebar-accent: oklch(0.255 0.014 260);
+  --sidebar-accent-foreground: oklch(0.965 0.003 250);
+  --sidebar-border: oklch(0.29 0.013 260);
+  --sidebar-ring: oklch(0.72 0.135 242);
+
+  --ambient-a: oklch(0.72 0.135 242 / 0.16);
+  --ambient-b: oklch(0.76 0.11 194 / 0.11);
+  --ambient-c: oklch(0.7 0.12 300 / 0.09);
+  --grid-line: oklch(0.965 0.003 250 / 0.028);
+
+  --shadow-raise: 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-float:
+    0 1px 2px oklch(0 0 0 / 0.35),
+    0 8px 24px -6px oklch(0 0 0 / 0.45);
+  --shadow-overlay:
+    0 1px 3px oklch(0 0 0 / 0.4),
+    0 16px 48px -12px oklch(0 0 0 / 0.6);
+  --glow-accent: 0 0 0 1px oklch(0.72 0.135 242 / 0.35),
+    0 0 32px -6px oklch(0.72 0.135 242 / 0.4);
+}
+
+/* --------------------------------------------------------------- MOTION --- */
+
+:root {
+  --dur-instant: 90ms;
+  --dur-fast: 150ms;
+  --dur-base: 240ms;
+  --dur-slow: 400ms;
+
+  /* Expo-out: quick departure, soft landing. The workspace's default feel. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ----------------------------------------------------------------- BASE --- */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  /* One focus treatment for the whole product. Never removed, only replaced.
+     Deliberately element-level rather than `:where()` — a zero-specificity
+     selector loses to any Tailwind utility, which silently drops the focus
+     ring on exactly the custom controls that need it most. Anything that
+     supplies its own indicator opts out with `focus-visible:outline-none`. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: oklch(from var(--primary) l c h / 0.24);
+  }
+}
+
+@layer utilities {
+  /* Numerics align vertically wherever they appear. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Large figures: tight tracking makes big numbers read as one object. */
+  .figure {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.025em;
+    font-feature-settings: "tnum";
+  }
+
+  /* Analytical prose measure. Data blocks stay full width. */
+  .measure {
+    max-width: 64ch;
+  }
+
+  /* Small tracked labels — the product's metadata voice. */
+  .label-xs {
+    font-size: 10.5px;
+    line-height: 1.4;
+    font-weight: 560;
+    letter-spacing: 0.075em;
+    text-transform: uppercase;
+  }
+
+  .wrap-anywhere {
+    overflow-wrap: anywhere;
+  }
+
+  /* Hairline that fades at both ends — separates without drawing a box. */
+  .rule-fade {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border) 12%,
+      var(--border) 88%,
+      transparent
+    );
+  }
+
+  /* Faint engineering grid. Console state only. */
+  .grid-field {
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .shadow-raise {
+    box-shadow: var(--shadow-raise);
+  }
+  .shadow-float {
+    box-shadow: var(--shadow-float);
+  }
+  .shadow-overlay {
+    box-shadow: var(--shadow-overlay);
+  }
+  .glow-accent {
+    box-shadow: var(--glow-accent);
+  }
+}
+
+/* Slow ambient drift for the console field. Transform/opacity only. */
+@keyframes ambient-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(2%, -3%, 0) scale(1.12);
+    opacity: 1;
+  }
+}
+
+@keyframes ambient-drift-alt {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate3d(-3%, 2%, 0) scale(1);
+    opacity: 0.95;
+  }
+}
+
+/* Sweep used by the pending-analysis indicator. */
+@keyframes sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.animate-ambient {
+  animation: ambient-drift 22s var(--ease-in-out) infinite;
+  will-change: transform, opacity;
+}
+
+.animate-ambient-alt {
+  animation: ambient-drift-alt 28s var(--ease-in-out) infinite;
+  will-change: transform, opacity;
+}
+
+.animate-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(from var(--primary) l c h / 0.14),
+    transparent
+  );
+  animation: sheen 1.7s var(--ease-in-out) infinite;
+}
+
+/* Motion budget: everything above is disableable. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-ambient,
+  .animate-ambient-alt {
+    animation: none !important;
+  }
+
+  .animate-sheen::after {
+    animation: none !important;
+    opacity: 0.35;
+  }
+}
+
+/* Recharts resets — the library must not dictate the product's appearance. */
+.recharts-surface {
+  overflow: visible;
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  display: none;
+}
+.recharts-text {
+  fill: var(--muted-foreground);
+}

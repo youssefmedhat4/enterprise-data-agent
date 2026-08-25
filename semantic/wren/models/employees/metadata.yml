@@ -1,0 +1,76 @@
+name: employees
+table_reference:
+  schema: analytics
+  table: employees
+primary_key: id
+columns:
+  - name: id
+    type: INTEGER
+    is_primary_key: true
+    not_null: true
+  - name: employee_number
+    type: VARCHAR
+    not_null: true
+  - name: department_id
+    type: INTEGER
+    not_null: true
+  - name: manager_id
+    type: INTEGER
+  - name: full_name
+    type: VARCHAR
+    not_null: true
+    properties:
+      aliases: [employee name, staff name, اسم الموظف]
+  - name: arabic_name
+    type: VARCHAR
+    not_null: true
+  - name: job_title
+    type: VARCHAR
+    not_null: true
+  - name: status
+    type: VARCHAR
+    not_null: true
+    properties:
+      description: Lowercase employment status.
+      accepted_values: [active, leave, terminated]
+  - name: hire_date
+    type: DATE
+    not_null: true
+    properties:
+      description: Employment start date.
+  - name: termination_date
+    type: DATE
+    properties:
+      description: Employment end date; null while employment has not ended.
+  - name: salary
+    type: DECIMAL
+    not_null: true
+    properties:
+      description: Annual base salary, not monthly net payroll.
+      aliases: [annual salary, base salary, annual payroll, راتب]
+  - name: currency
+    type: VARCHAR
+    not_null: true
+  - name: is_active_employee
+    type: BOOLEAN
+    is_calculated: true
+    expression: "LOWER(status) = 'active'"
+    properties:
+      description: True when the current employment status is active.
+      aliases: [active employee, active employees, active headcount, الموظفين النشطين]
+properties:
+  description: Synthetic employee roster with annual base salaries.
+  aliases: [employee, employees, staff, headcount, موظف, الموظفين]
+  definitions:
+    - identifier: active_employee
+      name: Active employee
+      description: An employee whose current employment status is active.
+      expression: "LOWER(analytics.employees.status) = 'active'"
+      tables: [analytics.employees]
+      aliases: [active employee, active employees, active headcount, الموظفين النشطين]
+    - identifier: annual_base_salary
+      name: Annual base salary payroll
+      description: Department payroll without a monthly period means annual base salary.
+      expression: SUM(analytics.employees.salary)
+      tables: [analytics.employees, analytics.departments]
+      aliases: [annual salary, annual payroll, department payroll, payroll, رواتب]

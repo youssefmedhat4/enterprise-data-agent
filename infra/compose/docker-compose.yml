@@ -18,5 +18,113 @@ services:
       timeout: 5s
       retries: 10
 
+  checkpoint-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: enterprise_checkpoints
+      POSTGRES_USER: eda_checkpoint
+      POSTGRES_PASSWORD: ${CHECKPOINT_PASSWORD:?Set CHECKPOINT_PASSWORD in .env}
+    ports:
+      - "${CHECKPOINT_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - enterprise_checkpoint_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eda_checkpoint -d enterprise_checkpoints"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  wren:
+    profiles: ["wren"]
+    build:
+      context: ../..
+      dockerfile: infra/wren/Dockerfile
+      args:
+        WREN_VERSION: "0.13.2"
+    command:
+      - sh
+      - -c
+      - >-
+        wren context build --path /project &&
+        exec python /opt/wren/serve_no_connect.py
+    ports:
+      - "${WREN_PORT:-8080}:8080"
+    volumes:
+      - ../../semantic/wren:/project
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8080), 2).close()"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  cube:
+    profiles: ["cube"]
+    image: cubejs/cube:v1.7.14
+    environment:
+      CUBEJS_DEV_MODE: "true"
+      CUBEJS_DB_TYPE: postgres
+      CUBEJS_DB_HOST: postgres
+      CUBEJS_DB_PORT: "5432"
+      CUBEJS_DB_NAME: enterprise_analytics
+      CUBEJS_DB_USER: eda_readonly
+      CUBEJS_DB_PASS: ${EDA_READONLY_PASSWORD:?Set EDA_READONLY_PASSWORD in .env}
+      CUBEJS_SCHEMA_PATH: model
+    ports:
+      - "${CUBE_PORT:-4000}:4000"
+    volumes:
+      - ../../semantic/cube:/cube/conf/model:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('http').get('http://localhost:4000/readyz',
+          r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  opa:
+    profiles: ["opa"]
+    image: openpolicyagent/opa:1.7.1-static
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --set=decision_logs.console=false
+      - /policy
+      - /data
+    ports:
+      - "${OPA_PORT:-8181}:8181"
+    volumes:
+      - ../opa/policies:/policy:ro
+      - ../opa/data/local_roles.json:/data/roles.json:ro
+    healthcheck:
+      test:
+        - CMD
+        - /opa
+        - eval
+        - --fail
+        - data.enterprise.analytics.decision
+        - --data
+        - /policy
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
 volumes:
   enterprise_analytics_data:
+  enterprise_checkpoint_data:

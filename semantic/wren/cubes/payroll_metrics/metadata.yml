@@ -1,0 +1,25 @@
+name: payroll_metrics
+base_object: payroll_metric_base
+measures:
+  - name: net_payroll
+    expression: SUM(net_payroll_amount)
+    type: DECIMAL
+dimensions:
+  - name: department
+    expression: department
+    type: VARCHAR
+  - name: payroll_status
+    expression: payroll_status
+    type: VARCHAR
+  - name: currency
+    expression: currency
+    type: VARCHAR
+time_dimensions:
+  - name: payroll_period
+    expression: payroll_period
+    type: DATE
+hierarchies:
+  period: [payroll_period]
+properties:
+  description: Certified historical payroll metrics.
+  definition_version: "1.0"

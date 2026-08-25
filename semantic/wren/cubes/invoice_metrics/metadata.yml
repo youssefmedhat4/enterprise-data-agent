@@ -1,0 +1,29 @@
+name: invoice_metrics
+base_object: invoice_metric_base
+measures:
+  - name: invoice_amount
+    expression: SUM(invoice_line_amount)
+    type: DECIMAL
+dimensions:
+  - name: customer
+    expression: customer
+    type: VARCHAR
+  - name: invoice_status
+    expression: invoice_status
+    type: VARCHAR
+  - name: project
+    expression: project
+    type: VARCHAR
+  - name: currency
+    expression: currency
+    type: VARCHAR
+time_dimensions:
+  - name: invoice_issued
+    expression: invoice_issued
+    type: DATE
+hierarchies:
+  billing: [customer, project]
+  period: [invoice_issued]
+properties:
+  description: Certified invoice-line amount metrics.
+  definition_version: "1.0"

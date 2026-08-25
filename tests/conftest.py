@@ -1,0 +1,112 @@
+from collections.abc import Iterator
+
+import pytest
+
+from app.api.routes import _development_checkpoint_store
+from app.config import get_settings
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-cloud",
+        action="store_true",
+        default=False,
+        help="Allow tests marked cloud to make explicitly configured external LLM calls.",
+    )
+    parser.addoption(
+        "--run-local-llm",
+        action="store_true",
+        default=False,
+        help="Allow tests marked local_llm to call an explicitly configured local model.",
+    )
+    parser.addoption(
+        "--run-postgres",
+        action="store_true",
+        default=False,
+        help="Allow tests marked postgres to call the configured PostgreSQL database.",
+    )
+    parser.addoption(
+        "--run-wren",
+        action="store_true",
+        default=False,
+        help="Allow tests marked wren to call the configured local Wren service.",
+    )
+    parser.addoption(
+        "--run-opa",
+        action="store_true",
+        default=False,
+        help="Allow tests marked opa to call the configured OPA service.",
+    )
+    parser.addoption(
+        "--run-cube",
+        action="store_true",
+        default=False,
+        help="Allow tests marked cube to call the configured local Cube Core service.",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    run_cloud = config.getoption("--run-cloud")
+    run_local = config.getoption("--run-local-llm")
+    run_postgres = config.getoption("--run-postgres")
+    run_wren = config.getoption("--run-wren")
+    run_opa = config.getoption("--run-opa")
+    run_cube = config.getoption("--run-cube")
+    skip_cloud = pytest.mark.skip(reason="Cloud tests require explicit --run-cloud opt-in")
+    skip_local = pytest.mark.skip(
+        reason="Local model tests require explicit --run-local-llm opt-in"
+    )
+    skip_postgres = pytest.mark.skip(
+        reason="PostgreSQL tests require explicit --run-postgres opt-in"
+    )
+    skip_wren = pytest.mark.skip(reason="Wren tests require explicit --run-wren opt-in")
+    skip_opa = pytest.mark.skip(reason="OPA tests require explicit --run-opa opt-in")
+    skip_cube = pytest.mark.skip(reason="Cube tests require explicit --run-cube opt-in")
+    for item in items:
+        if not run_cloud and item.get_closest_marker("cloud") is not None:
+            item.add_marker(skip_cloud)
+        if not run_local and item.get_closest_marker("local_llm") is not None:
+            item.add_marker(skip_local)
+        if not run_postgres and item.get_closest_marker("postgres") is not None:
+            item.add_marker(skip_postgres)
+        if not run_wren and item.get_closest_marker("wren") is not None:
+            item.add_marker(skip_wren)
+        if not run_opa and item.get_closest_marker("opa") is not None:
+            item.add_marker(skip_opa)
+        if not run_cube and item.get_closest_marker("cube") is not None:
+            item.add_marker(skip_cube)
+
+
+@pytest.fixture(autouse=True)
+def deterministic_test_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> Iterator[None]:
+    external_model_test = (
+        request.node.get_closest_marker("cloud") is not None
+        or request.node.get_closest_marker("local_llm") is not None
+    )
+    if not external_model_test:
+        monkeypatch.setenv("LLM_PROVIDER", "fake")
+        monkeypatch.setenv("LLM_MODEL_ANALYTICS_GENERAL", "fake/analytics-general")
+        monkeypatch.setenv("LLM_MODEL_SQL_REASONER", "fake/sql-reasoner")
+        monkeypatch.setenv("DATABASE_PROVIDER", "fake")
+        monkeypatch.setenv("AUTHENTICATION_PROVIDER", "local")
+        monkeypatch.setenv("AUTHORIZATION_PROVIDER", "local")
+        monkeypatch.setenv("CONVERSATION_CHECKPOINT_PROVIDER", "memory")
+        monkeypatch.setenv("GOVERNANCE_PROVIDER", "disabled")
+        monkeypatch.setenv("OBSERVABILITY_PROVIDER", "none")
+        monkeypatch.setenv("READINESS_REQUIRE_METRIC_PROVIDER", "0")
+        monkeypatch.setenv("RUN_CLOUD_LLM_TESTS", "0")
+        monkeypatch.setenv("RUN_LOCAL_LLM_TESTS", "0")
+        monkeypatch.setenv("SEMANTIC_PROVIDER", "inmemory")
+        monkeypatch.setenv("SQL_GENERATION_PROVIDER", "llm")
+        monkeypatch.setenv("METRIC_PROVIDER", "cube")
+    get_settings.cache_clear()
+    _development_checkpoint_store.cache_clear()
+    yield
+    get_settings.cache_clear()
+    _development_checkpoint_store.cache_clear()

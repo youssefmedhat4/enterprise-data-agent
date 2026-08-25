@@ -1,0 +1,38 @@
+cubes:
+  - name: workforce_metrics
+    sql: |
+      SELECT
+        employees.id AS employee_id,
+        departments.name AS department,
+        employees.status AS employment_status,
+        employees.currency AS currency,
+        employees.salary AS annual_base_salary,
+        CASE WHEN LOWER(employees.status) = 'active' THEN 1 ELSE 0 END AS active_employee_count
+      FROM analytics.employees AS employees
+      JOIN analytics.departments AS departments
+        ON employees.department_id = departments.id
+
+    measures:
+      - name: active_headcount
+        sql: active_employee_count
+        type: sum
+      - name: annual_base_payroll
+        sql: annual_base_salary
+        type: sum
+
+    dimensions:
+      - name: employee_id
+        sql: employee_id
+        type: number
+        primary_key: true
+      - name: department
+        sql: department
+        type: string
+      - name: employment_status
+        sql: employment_status
+        type: string
+      - name: currency
+        sql: currency
+        type: string
+
+    description: Certified employee roster metrics, definition version 1.0.

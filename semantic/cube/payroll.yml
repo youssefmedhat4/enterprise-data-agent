@@ -1,0 +1,39 @@
+cubes:
+  - name: payroll_metrics
+    sql: |
+      SELECT
+        payroll.id AS payroll_id,
+        departments.name AS department,
+        payroll.status AS payroll_status,
+        employees.currency AS currency,
+        payroll.period_start AS payroll_period,
+        payroll.base_salary + payroll.bonus - payroll.deductions AS net_payroll_amount
+      FROM analytics.payroll AS payroll
+      JOIN analytics.employees AS employees ON payroll.employee_id = employees.id
+      JOIN analytics.departments AS departments
+        ON employees.department_id = departments.id
+
+    measures:
+      - name: net_payroll
+        sql: net_payroll_amount
+        type: sum
+
+    dimensions:
+      - name: payroll_id
+        sql: payroll_id
+        type: number
+        primary_key: true
+      - name: department
+        sql: department
+        type: string
+      - name: payroll_status
+        sql: payroll_status
+        type: string
+      - name: currency
+        sql: currency
+        type: string
+      - name: payroll_period
+        sql: payroll_period
+        type: time
+
+    description: Certified historical payroll metrics, definition version 1.0.

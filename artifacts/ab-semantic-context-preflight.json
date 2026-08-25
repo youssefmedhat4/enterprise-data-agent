@@ -1,0 +1,177 @@
+[
+  {
+    "question": "Which department has the highest payroll?",
+    "inmemory": {
+      "provider": "inmemory",
+      "tables": [
+        "analytics.departments",
+        "analytics.employees",
+        "analytics.payroll"
+      ],
+      "models": [
+        "analytics.departments",
+        "analytics.employees",
+        "analytics.payroll"
+      ],
+      "relationships": [
+        "physical:analytics.departments--analytics.employees",
+        "physical:analytics.employees--analytics.employees",
+        "physical:analytics.employees--analytics.payroll"
+      ],
+      "definitions": [],
+      "measures": [],
+      "context_size_chars": 257,
+      "retrieval_latency_ms": 2.467
+    },
+    "wren": {
+      "provider": "wren",
+      "tables": [
+        "analytics.departments",
+        "analytics.employees",
+        "analytics.payroll"
+      ],
+      "models": [
+        "wren:enterprise_analytics:departments",
+        "wren:enterprise_analytics:employees",
+        "wren:enterprise_analytics:payroll"
+      ],
+      "relationships": [
+        "wren:enterprise_analytics:employees_departments",
+        "wren:enterprise_analytics:payroll_employees"
+      ],
+      "definitions": [
+        "wren:annual_base_salary"
+      ],
+      "measures": [],
+      "context_size_chars": 427,
+      "retrieval_latency_ms": 940.44
+    }
+  },
+  {
+    "question": "Which customer has the highest invoice amount?",
+    "inmemory": {
+      "provider": "inmemory",
+      "tables": [
+        "analytics.customers",
+        "analytics.projects",
+        "analytics.invoices",
+        "analytics.project_costs"
+      ],
+      "models": [
+        "analytics.customers",
+        "analytics.projects",
+        "analytics.invoices",
+        "analytics.project_costs"
+      ],
+      "relationships": [
+        "physical:analytics.customers--analytics.invoices",
+        "physical:analytics.customers--analytics.projects",
+        "physical:analytics.invoices--analytics.projects",
+        "physical:analytics.project_costs--analytics.projects"
+      ],
+      "definitions": [],
+      "measures": [],
+      "context_size_chars": 316,
+      "retrieval_latency_ms": 0.381
+    },
+    "wren": {
+      "provider": "wren",
+      "tables": [
+        "analytics.customers",
+        "analytics.invoices",
+        "analytics.invoice_lines"
+      ],
+      "models": [
+        "wren:enterprise_analytics:customers",
+        "wren:enterprise_analytics:invoice_lines",
+        "wren:enterprise_analytics:invoices"
+      ],
+      "relationships": [
+        "wren:enterprise_analytics:invoices_customers",
+        "wren:enterprise_analytics:invoice_lines_invoices"
+      ],
+      "definitions": [
+        "wren:invoice_amount"
+      ],
+      "measures": [
+        "wren:invoice_lines.line_amount"
+      ],
+      "context_size_chars": 549,
+      "retrieval_latency_ms": 442.483
+    }
+  },
+  {
+    "question": "Which projects are active?",
+    "inmemory": {
+      "provider": "inmemory",
+      "tables": [
+        "analytics.projects"
+      ],
+      "models": [
+        "analytics.projects"
+      ],
+      "relationships": [],
+      "definitions": [],
+      "measures": [],
+      "context_size_chars": 93,
+      "retrieval_latency_ms": 0.226
+    },
+    "wren": {
+      "provider": "wren",
+      "tables": [
+        "analytics.projects"
+      ],
+      "models": [
+        "wren:enterprise_analytics:projects"
+      ],
+      "relationships": [],
+      "definitions": [],
+      "measures": [],
+      "context_size_chars": 8,
+      "retrieval_latency_ms": 437.972
+    }
+  },
+  {
+    "question": "Show project budget utilization.",
+    "inmemory": {
+      "provider": "inmemory",
+      "tables": [
+        "analytics.projects",
+        "analytics.project_costs"
+      ],
+      "models": [
+        "analytics.projects",
+        "analytics.project_costs"
+      ],
+      "relationships": [
+        "physical:analytics.project_costs--analytics.projects"
+      ],
+      "definitions": [
+        "budget_utilization"
+      ],
+      "measures": [],
+      "context_size_chars": 155,
+      "retrieval_latency_ms": 0.244
+    },
+    "wren": {
+      "provider": "wren",
+      "tables": [
+        "analytics.projects",
+        "analytics.project_costs"
+      ],
+      "models": [
+        "wren:enterprise_analytics:project_costs",
+        "wren:enterprise_analytics:projects"
+      ],
+      "relationships": [
+        "wren:enterprise_analytics:project_costs_projects"
+      ],
+      "definitions": [
+        "wren:budget_utilization"
+      ],
+      "measures": [],
+      "context_size_chars": 313,
+      "retrieval_latency_ms": 438.464
+    }
+  }
+]
