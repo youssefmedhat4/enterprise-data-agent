@@ -57,13 +57,27 @@ class ApplicationError(RuntimeError):
 
 
 class GroundingFailureError(ApplicationError):
-    def __init__(self) -> None:
+    """Raised when an answer cannot be verified against the executed result.
+
+    `reason` and `detail` are for developers and logs only. The public message is
+    deliberately unchanged and never names a column, value, or row, because the
+    rejected content is exactly the result data the caller may not be entitled to
+    see in an error.
+    """
+
+    def __init__(
+        self,
+        reason: str = "GROUNDING_UNSPECIFIED",
+        detail: str | None = None,
+    ) -> None:
         super().__init__(
             ErrorCode.GROUNDING_FAILED,
             "The generated answer could not be verified against the query result.",
             status_code=422,
             retryable=False,
         )
+        self.reason = reason
+        self.detail = detail
 
 
 class ErrorDetail(BaseModel):

@@ -91,8 +91,19 @@ Every HTTP response includes `X-Request-ID`. OpenAPI documents success and typed
 
 Governed metric and SQL results are normalized to `AnalyticalResult` before answer generation. The answer model sees
 only the actual returned rows. Every non-empty response must include structured claims whose row,
-field, and value match the result. Unsupported numbers, claims against absent fields, and claims on
-empty results fail with a typed grounding error.
+field, and value match the result. Claims against absent fields, claims citing a row that does not
+exist, claims whose value differs from the stored one, and claims on empty results all fail with a
+typed grounding error.
+
+Structured evidence is the boundary that actually prevents invented facts. A secondary sweep then
+looks at numerals in the prose that no claim cited. A numeral passes if it is a value in the result,
+the exact row count used in explicit result-shape wording, or a bounded integer used in explicit
+rank/position wording. Small integers are not generally trusted: `3 projects` still requires result
+evidence even when three is less than the row count. Every other numeral must appear in the result.
+
+Failures carry a content-free developer code and structural indexes that are logged and never
+serialized. Logs do not contain the answer, evidence values, result values, or rows. The public
+message stays generic because the rejected content may be sensitive.
 
 Visualizations are AI-selected and schema-validated (ADR 0012). The `analytics-general`
 model chooses the chart type and channels as part of the same grounded answer call, using
