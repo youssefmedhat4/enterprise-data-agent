@@ -179,6 +179,72 @@ def test_cloud_configuration_supports_vertex_adc_with_explicit_opt_in() -> None:
     assert settings.api_keys_by_alias == {}
 
 
+def test_self_hosted_qwen_endpoint_is_configured_like_any_vertex_model() -> None:
+    """A Model Garden endpoint needs no bespoke settings.
+
+    `vertex_ai/openai/<endpoint id>` resolves to the vertex_ai provider, so the
+    existing alias plumbing supplies project and location, ADC supplies the
+    credentials, and no API key is required or stored.
+    """
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/1234567890123456789",
+        LLM_MODEL_SQL_REASONER="vertex_ai/openai/1234567890123456789",
+        VERTEXAI_PROJECT="test-project",
+        VERTEXAI_LOCATION="us-central1",
+        RUN_CLOUD_LLM_TESTS=True,
+    )
+
+    _validate_configured_configuration(settings)
+
+    assert settings.model_provider(settings.llm_model_sql_reasoner) == "vertex_ai"
+    assert settings.api_keys_by_alias == {}
+    assert settings.model_options_by_alias["sql-reasoner"] == {
+        "vertex_project": "test-project",
+        "vertex_location": "us-central1",
+        # Qwen3.6 is a reasoning model; its thinking trace is not valid JSON and
+        # breaks every structured response unless disabled at the chat template.
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+
+
+def test_managed_vertex_models_do_not_receive_vllm_request_options() -> None:
+    """A managed Vertex model would reject vLLM-specific options."""
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/gemini-2.5-flash",
+        LLM_MODEL_SQL_REASONER="vertex_ai/gemini-2.5-flash",
+        VERTEXAI_PROJECT="test-project",
+        VERTEXAI_LOCATION="global",
+    )
+
+    assert settings.model_options_by_alias["sql-reasoner"] == {
+        "vertex_project": "test-project",
+        "vertex_location": "global",
+    }
+    assert not Settings.is_vertex_openai_endpoint("vertex_ai/gemini-2.5-flash")
+    assert Settings.is_vertex_openai_endpoint("vertex_ai/openai/mg-endpoint-abc")
+
+
+def test_self_hosted_qwen_endpoint_still_requires_cloud_data_approval() -> None:
+    """Self-hosting the weights does not exempt the endpoint.
+
+    Result content still leaves the process, so the cloud-data guard must treat a
+    project-owned Vertex endpoint exactly like any other cloud model.
+    """
+    with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA"):
+        Settings(
+            LLM_PROVIDER="litellm",
+            LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/1234567890123456789",
+            LLM_MODEL_SQL_REASONER="vertex_ai/openai/1234567890123456789",
+            VERTEXAI_PROJECT="test-project",
+            VERTEXAI_LOCATION="us-central1",
+            DATABASE_PROVIDER="postgres",
+            DATABASE_URL="postgresql://u:p@localhost:5432/db",
+            ALLOW_CLOUD_DATABASE_DATA=False,
+        )
+
+
 def test_cloud_configuration_requires_vertex_project() -> None:
     settings = Settings(
         LLM_PROVIDER="litellm",

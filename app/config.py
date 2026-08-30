@@ -472,7 +472,25 @@ class Settings(BaseSettings):
                     "vertex_project": self.vertex_ai_project,
                     "vertex_location": self.vertex_ai_location,
                 }
+                if self.is_vertex_openai_endpoint(model):
+                    # Qwen3.6 is a reasoning model: by default it emits a thinking
+                    # trace before the answer, which is not valid JSON and breaks
+                    # every structured response. Turning thinking off at the chat
+                    # template is what makes `response_format` usable at all.
+                    options[alias]["extra_body"] = {
+                        "chat_template_kwargs": {"enable_thinking": False}
+                    }
         return options
+
+    @staticmethod
+    def is_vertex_openai_endpoint(model: str) -> bool:
+        """True for a self-hosted Model Garden endpoint served over the OpenAI API.
+
+        Distinguishes `vertex_ai/openai/<endpoint id>` (our own vLLM deployment)
+        from a managed Vertex model such as `vertex_ai/gemini-2.5-flash`, which
+        would reject vLLM-specific request options.
+        """
+        return model.lower().startswith("vertex_ai/openai/")
 
     @property
     def structured_output_modes_by_alias(self) -> dict[str, Literal["tool_call"]]:

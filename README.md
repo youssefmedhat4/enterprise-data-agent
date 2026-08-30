@@ -251,7 +251,9 @@ gcloud auth application-default login
 ```
 
 The script starts analytics PostgreSQL, dedicated checkpoint PostgreSQL, OPA, and Wren before
-FastAPI. Current model aliases use `vertex_ai/gemini-2.5-flash`. A future Ollama deployment only
+FastAPI. Both model aliases resolve to a self-hosted `Qwen/Qwen3.6-27B` Vertex AI endpoint in
+this project (ADR 0013); that endpoint is a provisioned GPU and bills continuously until it is
+undeployed. A future Ollama deployment only
 changes the `LLM_MODEL_*` aliases and `OLLAMA_API_BASE`; no graph code changes. See
 [`docs/backend-v1.md`](docs/backend-v1.md) for the complete lifecycle and security boundaries.
 

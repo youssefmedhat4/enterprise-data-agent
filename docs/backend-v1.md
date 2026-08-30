@@ -198,17 +198,59 @@ METRIC_PROVIDER=wren
 SEMANTIC_PROVIDER=inmemory
 GOVERNANCE_PROVIDER=disabled
 LLM_PROVIDER=litellm
-LLM_MODEL_ANALYTICS_GENERAL=vertex_ai/gemini-2.5-flash
-LLM_MODEL_SQL_REASONER=vertex_ai/gemini-2.5-flash
+LLM_MODEL_ANALYTICS_GENERAL=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
+LLM_MODEL_SQL_REASONER=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
 VERTEXAI_PROJECT=your-project-id
-VERTEXAI_LOCATION=global
+VERTEXAI_LOCATION=us-central1
 ALLOW_CLOUD_DATABASE_DATA=1
 ```
 
-ADC supplies Vertex credentials; no Gemini API key is used. `ALLOW_CLOUD_DATABASE_DATA=1` is
-appropriate here only because the local database is synthetic. To move to the stronger local
-machine, configure both logical aliases as `ollama_chat/<installed-tag>` and set
-`OLLAMA_API_BASE`; LangGraph and application code do not change.
+Both aliases resolve to a self-hosted `Qwen/Qwen3.6-27B` endpoint in this project's own
+Vertex AI (ADR 0013), served by Google's prebuilt vLLM container on one
+`NVIDIA_RTX_PRO_6000`. ADC supplies the credentials; no API key, service-account key, or
+bearer token is stored anywhere. `ALLOW_CLOUD_DATABASE_DATA=1` still applies — self-hosting
+the weights does not exempt the endpoint, because result content still leaves the process.
+
+There is no model fallback. If the endpoint is undeployed or unreachable, requests fail
+with a typed LLM error; Gemini never silently answers in its place. Reverting to Gemini is
+an explicit change of these two aliases back to `vertex_ai/gemini-2.5-flash` with
+`VERTEXAI_LOCATION=global`. To move to a local machine instead, configure both aliases as
+`ollama_chat/<installed-tag>` and set `OLLAMA_API_BASE`; LangGraph and application code do
+not change in either direction.
+
+### Qwen endpoint operations
+
+Stopping GPU billing and deleting the resources are different actions. Undeploying releases
+the accelerator while keeping the endpoint and model registry entry, so redeploying later is
+cheap; deleting is permanent.
+
+```powershell
+# 1. Is it running, and is a replica serving?
+gcloud ai endpoints list --region=us-central1 --filter="displayName=enterprise-data-agent-qwen36-27b"
+gcloud ai endpoints describe mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1 `
+  --format="value(deployedModels[0].id,deployedModels[0].status.availableReplicaCount)"
+
+# 2. STOP BILLING - undeploy the model, keep the endpoint
+gcloud ai endpoints undeploy-model mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1 `
+  --deployed-model-id=510926010997276672
+
+# 3. Redeploy later
+gcloud ai model-garden models deploy --model="qwen/qwen3-6@qwen3.6-27b" `
+  --region=us-central1 --accept-eula --machine-type=g4-standard-48 `
+  --accelerator-type=NVIDIA_RTX_PRO_6000 `
+  --container-image-uri="us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:20260226_0916_RC01" `
+  --reservation-affinity reservation-affinity-type=no-reservation `
+  --disable-dedicated-endpoint `
+  --endpoint-display-name="enterprise-data-agent-qwen36-27b-shared"
+
+# 4. PERMANENTLY DELETE (after undeploying)
+gcloud ai endpoints delete mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1
+gcloud ai models delete MODEL_ID --region=us-central1
+```
+
+Do not pass `--use-dedicated-endpoint`. A dedicated endpoint serves from
+`*.prediction.vertexai.goog`, which is TLS-intercepted on this network by a CA the machine
+does not trust, making the endpoint unreachable after a successful deploy.
 
 Production replaces local authentication with OIDC:
 
