@@ -19,11 +19,27 @@ DEFINITIONS = (
     SemanticDefinition(
         identifier="annual_base_salary",
         name="Annual base salary payroll",
-        description="Annual employee payroll uses the annual base salary stored on employees.",
+        description=(
+            "Annual base payroll sums salary across employee roster rows. It is not implicitly "
+            "limited to active employees when active headcount is requested alongside it."
+        ),
         expression="SUM(analytics.employees.salary)",
         tables=("analytics.employees", "analytics.departments"),
         required_columns=("analytics.employees.salary",),
         aliases=("annual salary", "annual payroll", "department payroll", "salary", "رواتب"),
+    ),
+    SemanticDefinition(
+        identifier="average_employee_salary",
+        name="Average employee salary",
+        description=(
+            "Average employee salary uses employee roster rows unless the question explicitly "
+            "requests a narrower population. A headcount status filter does not automatically "
+            "apply to this measure."
+        ),
+        expression="AVG(analytics.employees.salary)",
+        tables=("analytics.employees", "analytics.departments"),
+        required_columns=("analytics.employees.salary",),
+        aliases=("average employee salary", "average salary", "mean salary"),
     ),
     SemanticDefinition(
         identifier="net_payroll",
@@ -44,7 +60,10 @@ DEFINITIONS = (
     SemanticDefinition(
         identifier="invoice_amount",
         name="Invoiced amount",
-        description="Invoice amount is the sum of line quantity multiplied by line unit price.",
+        description=(
+            "Invoice amount is an invoice-line fact: sum quantity times unit price independently "
+            "to the requested result grain before joining other fact aggregates."
+        ),
         expression="SUM(analytics.invoice_lines.quantity * analytics.invoice_lines.unit_price)",
         tables=("analytics.invoices", "analytics.invoice_lines"),
         required_columns=(
@@ -63,8 +82,8 @@ DEFINITIONS = (
         identifier="project_cost",
         name="Project cost",
         description=(
-            "Project cost is the sum of project cost entry amounts using cost_date "
-            "for time filters."
+            "Project cost is an independent cost-entry fact: sum amounts to the requested result "
+            "grain before joining invoice or employee aggregates; cost_date defines time filters."
         ),
         expression="SUM(analytics.project_costs.amount), filtered by project_costs.cost_date",
         tables=("analytics.projects", "analytics.project_costs"),
@@ -73,6 +92,34 @@ DEFINITIONS = (
             "analytics.project_costs.cost_date",
         ),
         aliases=("project cost", "project costs", "cost categories", "تكاليف"),
+    ),
+    SemanticDefinition(
+        identifier="project_margin",
+        name="Project margin",
+        description=(
+            "Project margin is invoiced amount minus project cost. Invoice lines and project "
+            "costs are independent one-to-many fact sources: aggregate each independently to "
+            "project, then roll each to the requested final grain before subtracting or joining."
+        ),
+        expression=(
+            "SUM(invoice amount at requested grain) - SUM(project cost at requested grain), "
+            "after independent fact pre-aggregation"
+        ),
+        tables=(
+            "analytics.projects",
+            "analytics.invoices",
+            "analytics.invoice_lines",
+            "analytics.project_costs",
+        ),
+        required_columns=(
+            "analytics.projects.owning_department_id",
+            "analytics.invoices.project_id",
+            "analytics.invoice_lines.quantity",
+            "analytics.invoice_lines.unit_price",
+            "analytics.project_costs.project_id",
+            "analytics.project_costs.amount",
+        ),
+        aliases=("project margin", "project profit", "total project margin"),
     ),
     SemanticDefinition(
         identifier="budget_utilization",

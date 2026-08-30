@@ -6,7 +6,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
     return [
         _table(
             "departments",
-            "Enterprise departments and their English/Arabic labels.",
+            "One row per enterprise department, with English/Arabic labels.",
             [
                 _column("id", "INTEGER", False, "Department identifier.", pk=True),
                 _column("name", "VARCHAR", False, "English department name."),
@@ -24,7 +24,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
         ),
         _table(
             "employees",
-            "Employees, department placement, employment status, and annual base salary.",
+            "One roster row per employee, with department, status, and annual base salary.",
             [
                 _column("id", "INTEGER", False, "Employee identifier.", pk=True),
                 _column("employee_number", "VARCHAR", False, "Business employee code."),
@@ -132,7 +132,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
         ),
         _table(
             "projects",
-            "Customer projects, ownership, lifecycle dates, status, and approved budget.",
+            "One row per customer project, with owning department, dates, status, and budget.",
             [
                 _column("id", "INTEGER", False, "Project identifier.", pk=True),
                 _column("project_code", "VARCHAR", False, "Business project code."),
@@ -210,7 +210,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
         ),
         _table(
             "invoices",
-            "Customer/project invoice headers and invoice lifecycle dates.",
+            "One row per invoice header, linked to a customer and optionally one project.",
             [
                 _column("id", "INTEGER", False, "Invoice identifier.", pk=True),
                 _column("invoice_number", "VARCHAR", False, "Business invoice number."),
@@ -249,7 +249,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
         ),
         _table(
             "invoice_lines",
-            "Invoice line quantities and unit prices used to calculate invoice amounts.",
+            "One row per invoice line; this is an independent invoicing fact source.",
             [
                 _column("id", "INTEGER", False, "Invoice line identifier.", pk=True),
                 _column("invoice_id", "INTEGER", False, "Parent invoice identifier."),
@@ -262,7 +262,7 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
         ),
         _table(
             "project_costs",
-            "Dated project cost entries by category.",
+            "One row per dated project cost entry; this is an independent cost fact source.",
             [
                 _column("id", "INTEGER", False, "Project cost identifier.", pk=True),
                 _column("project_id", "INTEGER", False, "Related project identifier."),

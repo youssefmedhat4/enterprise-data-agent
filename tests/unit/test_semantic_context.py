@@ -44,3 +44,28 @@ async def test_bare_revenue_does_not_invent_a_business_definition() -> None:
 
     assert context.definition_ids == []
     assert context.table_ids == []
+
+
+@pytest.mark.asyncio
+async def test_multi_fact_context_describes_grain_and_independent_measure_scopes() -> None:
+    context = await InMemorySemanticGateway().retrieve_context(
+        question=(
+            "For each department show active employee count, annual base payroll, average "
+            "employee salary, project cost, invoiced amount, and project margin."
+        ),
+        available_tables=synthetic_enterprise_metadata(),
+        prior_context=None,
+    )
+
+    definitions = {definition.identifier: definition for definition in context.definitions}
+    assert {
+        "active_employee",
+        "annual_base_salary",
+        "average_employee_salary",
+        "invoice_amount",
+        "project_cost",
+        "project_margin",
+    }.issubset(definitions)
+    assert "not implicitly limited to active" in definitions["annual_base_salary"].description
+    assert "does not automatically apply" in definitions["average_employee_salary"].description
+    assert "independent one-to-many fact sources" in definitions["project_margin"].description

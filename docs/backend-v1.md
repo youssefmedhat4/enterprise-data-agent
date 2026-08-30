@@ -57,6 +57,13 @@ to the model. It repeats SQLGlot validation and read-only-role verification, and
 never falls back. Future SQL Server/MySQL support should use separate dialect-specific adapters
 behind `DatabaseGateway`.
 
+For multi-fact ad-hoc analysis, the shared SQL prompt requires an explicit final result grain,
+independent pre-aggregation of one-to-many fact sources, and measure-specific filter scopes. The
+in-memory semantic provider describes roster, project, invoice-line, and cost-entry grains and
+states that project margin combines independently aggregated invoice and cost facts. It also keeps
+active-headcount filtering separate from roster payroll and average salary. No post-hoc
+`DISTINCT`/`SUM(DISTINCT ...)` correction or frontend row deduplication is used.
+
 ## Public API
 
 `POST /analytics/query` accepts a question, optional thread ID, and optional debug request. Both
