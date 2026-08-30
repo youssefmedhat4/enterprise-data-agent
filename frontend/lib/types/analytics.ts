@@ -38,6 +38,12 @@ export interface AnalyticsRequest {
  */
 export type ChartType = "bar" | "line" | "area" | "pie" | "donut" | "scatter";
 
+/** How a measure column is stored — never anything derived from it. */
+export type MeasureFormat = "number" | "currency" | "percent";
+
+/** Slice labelling for pie/donut. Inert for every other chart type. */
+export type PartToWholeDisplay = "value" | "percent" | "value_and_percent";
+
 export interface ChartSpec {
   type: ChartType;
   title: string;
@@ -53,7 +59,16 @@ export interface ChartSpec {
   mode: "grouped" | "stacked";
   x_label: string | null;
   y_label: string | null;
-  value_format: "number" | "currency" | "percent";
+  /**
+   * How the measure column is stored. A question about "share" does not make an
+   * amount column a percentage — that is what `part_to_whole_display` is for.
+   */
+  value_format: MeasureFormat;
+  /**
+   * Pie/donut slice labelling. The share is derived at render time from the
+   * plotted values; it is never a column in `rows` and never enters grounding.
+   */
+  part_to_whole_display: PartToWholeDisplay;
   /** Display-only reordering by the first measure. Values are never altered. */
   sort: "none" | "ascending" | "descending";
   /** Display-only cap on rendered categories. */

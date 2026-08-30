@@ -68,7 +68,15 @@ class ChartSpec(StrictContract):
     mode: Literal["grouped", "stacked"] = "grouped"
     x_label: str | None = Field(default=None, max_length=80)
     y_label: str | None = Field(default=None, max_length=80)
+    #: How the measure column is stored — never anything derived from it. A
+    #: question about "share" does not make an amount column a percentage.
     value_format: Literal["number", "currency", "percent"] = "number"
+    #: Slice labelling for pie/donut only; inert for every other type. The share
+    #: is computed at render time from the plotted values and is never a column
+    #: in the result, so it never enters rows, claims, or provenance.
+    part_to_whole_display: Literal["value", "percent", "value_and_percent"] = (
+        "value_and_percent"
+    )
     #: Display-only reordering by the first measure. Never changes any value.
     sort: Literal["none", "ascending", "descending"] = "none"
     #: Display-only cap on rendered categories. Truncation is disclosed in the UI.

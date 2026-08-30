@@ -1098,9 +1098,20 @@ def _answer_system_prompt() -> str:
         "individual records are all normally better as text and a table alone. A chart that "
         "would be unreadable is worse than no chart.\n"
         "\n"
-        "Only reference column names that appear in the result. Set x_label, y_label, and "
-        "value_format when they make the chart easier to read; use value_format=currency for "
-        "monetary measures and percent for values already expressed as percentages."
+        "Only reference column names that appear in the result, and set x_label and y_label "
+        "when they make the chart easier to read.\n"
+        "\n"
+        "value_format describes the measure column as it is actually stored, never anything "
+        "derived from it: currency for monetary amounts, percent only when the stored values "
+        "are themselves percentages, and number otherwise. A question phrased in terms of "
+        "share or percentage does not make the underlying column a percentage — payroll "
+        "amounts stay value_format=currency even when the user asked for their share.\n"
+        "\n"
+        "For pie and donut, part_to_whole_display controls how each slice is labelled. Leave "
+        "it at value_and_percent when plotting raw amounts or counts, so a slice shows its own "
+        "value next to its share of the total; that share is computed from the plotted values "
+        "and is never a column in the result. Use percent when only the share matters, and "
+        "value when the stored values are already percentages."
     )
 
 

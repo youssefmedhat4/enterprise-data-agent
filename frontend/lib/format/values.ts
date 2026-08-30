@@ -1,4 +1,9 @@
-import type { ResultRow, Scalar } from "@/lib/types/analytics";
+import type {
+  MeasureFormat,
+  PartToWholeDisplay,
+  ResultRow,
+  Scalar,
+} from "@/lib/types/analytics";
 
 /**
  * Value formatting for analytical results.
@@ -132,6 +137,71 @@ export function formatNumber(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+/**
+ * Format a measure according to how the column is *stored*.
+ *
+ * `percent` appends a sign only because the stored values already are
+ * percentages. It must never be used to express a share derived from the data —
+ * that is `shareOfTotal`, and conflating the two is what turned a 710,000
+ * payroll amount into "710,000%".
+ *
+ * `currency` is rendered with a fixed two decimals but deliberately no symbol:
+ * the result carries no currency code, and this platform holds multi-currency
+ * data, so printing "$" would assert something the data never said.
+ */
+export function formatMeasure(value: number, format: MeasureFormat): string {
+  if (format === "percent") return `${formatNumber(value)}%`;
+  if (format === "currency") {
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+  return formatNumber(value);
+}
+
+/**
+ * A slice's share of the plotted total, as a percentage.
+ *
+ * Display-only and computed from the values already on the chart. Returns null
+ * when the total is zero, negative, or non-finite, so a degenerate result shows
+ * its raw values instead of a misleading or infinite share.
+ */
+export function shareOfTotal(value: number, total: number): number | null {
+  if (!Number.isFinite(total) || !Number.isFinite(value) || total <= 0) return null;
+  return (value / total) * 100;
+}
+
+/** Render a share with one decimal, which reads cleanly at chart scale. */
+export function formatShare(share: number): string {
+  return `${new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(share)}%`;
+}
+
+/**
+ * Label one part-to-whole slice according to the spec's display mode.
+ * Falls back to the value alone whenever a share cannot be computed safely.
+ */
+export function formatSliceLabel(
+  value: number,
+  total: number,
+  valueFormat: MeasureFormat,
+  display: PartToWholeDisplay,
+): string {
+  const formattedValue = formatMeasure(value, valueFormat);
+  if (display === "value") return formattedValue;
+
+  const share = shareOfTotal(value, total);
+  if (share === null) return formattedValue;
+
+  const formattedShare = formatShare(share);
+  return display === "percent"
+    ? formattedShare
+    : `${formattedValue} · ${formattedShare}`;
 }
 
 /** Short axis/tick label: 710,000 -> 710K. */

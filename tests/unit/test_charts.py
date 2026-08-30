@@ -160,6 +160,70 @@ def test_table_only_is_represented_by_no_chart() -> None:
     assert ChartValidator().validate(None, [{"value": 1}]) == (None, [])
 
 
+def test_part_to_whole_display_defaults_to_value_and_percent() -> None:
+    """Raw amounts should show their own value beside the derived share."""
+    chart = ChartSpec(chart_type="donut", x="department", measures=["payroll"], title="S")
+
+    assert chart.part_to_whole_display == "value_and_percent"
+
+
+def test_value_format_and_part_to_whole_display_are_independent() -> None:
+    """A currency measure can carry a share without becoming a percent field.
+
+    This is the contract-level fix for the bug where `value_format=percent` was
+    overloaded to mean "show the share", rendering a 710000 payroll as 710,000%.
+    """
+    chart = ChartSpec(
+        chart_type="donut",
+        x="department",
+        measures=["payroll"],
+        value_format="currency",
+        part_to_whole_display="percent",
+        title="Share",
+    )
+
+    validated, warnings = ChartValidator().validate(chart, CATEGORY_ROWS)
+
+    assert validated is not None
+    assert validated.value_format == "currency"
+    assert validated.part_to_whole_display == "percent"
+    assert warnings == []
+
+
+def test_already_percent_slices_do_not_also_derive_a_share() -> None:
+    """Two percentages of different wholes is worse than showing neither."""
+    chart = ChartSpec(
+        chart_type="pie",
+        x="department",
+        measures=["utilization"],
+        value_format="percent",
+        part_to_whole_display="value_and_percent",
+        title="Utilization",
+    )
+
+    validated, warnings = ChartValidator().validate(
+        chart,
+        [{"department": "Engineering", "utilization": 80}],
+    )
+
+    assert validated is not None
+    assert validated.part_to_whole_display == "value"
+    assert warnings == []
+
+
+def test_part_to_whole_display_rejects_unknown_modes() -> None:
+    with pytest.raises(ValidationError):
+        ChartSpec.model_validate(
+            {
+                "type": "donut",
+                "x": "department",
+                "measures": ["payroll"],
+                "title": "S",
+                "part_to_whole_display": "share_of_everything",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "payload",
     [

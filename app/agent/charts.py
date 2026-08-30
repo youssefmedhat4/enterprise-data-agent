@@ -92,6 +92,16 @@ class ChartValidator:
         if chart.mode == "stacked" and not (multi_series and stackable):
             updates["mode"] = "grouped"
 
+        # Values that are already percentages must not also carry a derived
+        # share: "80% · 25.0%" shows two percentages of different wholes, which
+        # is worse than showing neither.
+        if (
+            chart.chart_type in {"pie", "donut"}
+            and chart.value_format == "percent"
+            and chart.part_to_whole_display != "value"
+        ):
+            updates["part_to_whole_display"] = "value"
+
         return chart.model_copy(update=updates) if updates else chart
 
 

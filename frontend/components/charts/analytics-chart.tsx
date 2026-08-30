@@ -23,7 +23,8 @@ import {
 
 import {
   formatCompact,
-  formatNumber,
+  formatMeasure,
+  formatSliceLabel,
   humanizeColumn,
   toNumber,
 } from "@/lib/format/values";
@@ -69,10 +70,27 @@ interface Prepared {
   omitted: number;
 }
 
-/** Format a value for tooltips and labels according to the spec's intent. */
-function formatValue(value: number, format: ChartSpec["value_format"]): string {
-  if (format === "percent") return `${formatNumber(value)}%`;
-  return formatNumber(value);
+/**
+ * Format a plotted value for tooltips.
+ *
+ * `partToWholeTotal` is supplied only for pie and donut, where a slice is also
+ * labelled with its share of the plotted total. That share is derived here for
+ * display and never touches the returned rows.
+ */
+function formatValue(
+  value: number,
+  spec: ChartSpec,
+  partToWholeTotal?: number,
+): string {
+  if (partToWholeTotal !== undefined) {
+    return formatSliceLabel(
+      value,
+      partToWholeTotal,
+      spec.value_format,
+      spec.part_to_whole_display,
+    );
+  }
+  return formatMeasure(value, spec.value_format);
 }
 
 function prepare(spec: ChartSpec, rows: ResultRow[]): Prepared {
@@ -160,12 +178,14 @@ function ChartTooltip({
   active,
   payload,
   label,
-  valueFormat,
+  spec,
+  partToWholeTotal,
 }: {
   active?: boolean;
   payload?: { name?: string; value?: number; color?: string }[];
   label?: string;
-  valueFormat: ChartSpec["value_format"];
+  spec: ChartSpec;
+  partToWholeTotal?: number;
 }) {
   if (active !== true || payload === undefined || payload.length === 0) {
     return null;
@@ -197,7 +217,7 @@ function ChartTooltip({
             <span className="tnum font-medium text-popover-foreground">
               {item.value === undefined
                 ? "—"
-                : formatValue(item.value, valueFormat)}
+                : formatValue(item.value, spec, partToWholeTotal)}
             </span>
           </li>
         ))}
@@ -251,7 +271,7 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
   const showLegend = seriesKeys.length > 1;
   const stackId = stacked ? "stack" : undefined;
 
-  const tooltip = <ChartTooltip valueFormat={spec.value_format} />;
+  const tooltip = <ChartTooltip spec={spec} />;
   const grid = (
     <CartesianGrid
       vertical={isHorizontal}
@@ -286,6 +306,12 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
         .slice(0, MAX_SLICES)
     : [];
 
+  // Share is relative to what is actually drawn, so a truncated pie reports the
+  // share of its visible slices rather than of a total the viewer cannot see.
+  const partToWholeTotal = isCircular
+    ? circularData.reduce((sum, entry) => sum + entry.value, 0)
+    : undefined;
+
   return (
     <figure className="min-w-0">
       <figcaption className="sr-only">
@@ -297,7 +323,12 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           {isCircular ? (
             <PieChart>
-              <Tooltip content={tooltip} cursor={false} />
+              <Tooltip
+                content={
+                  <ChartTooltip spec={spec} partToWholeTotal={partToWholeTotal} />
+                }
+                cursor={false}
+              />
               <Pie
                 data={circularData}
                 dataKey="value"

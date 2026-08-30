@@ -109,6 +109,14 @@ name is never trusted because the model emitted it. An incompatible chart is dro
 `chart = null` with a sanitized warning rather than failing the analysis, so the grounded
 answer and the table always survive a bad visualization.
 
+`value_format` describes the measure column as stored; `part_to_whole_display` separately
+controls whether a pie or donut slice is labelled with its share of the total. That share
+is derived at render time from the plotted values and never enters rows, claims, or
+provenance. The frontend additionally lets a user re-present the same validated rows as
+another compatible chart type; the AI's selection stays the default, alternatives are
+filtered by the same rules the backend enforces, and no query, answer, or provenance
+changes.
+
 Public provenance contains source, source tables, result fields/metadata, execution timestamp, and
 freshness. Sensitive subject IDs, policy decisions, physical model routing, SQL, detailed governance
 metadata, and internal latency breakdowns remain internal unless a narrowly authorized debug view

@@ -77,6 +77,39 @@ mismatch (horizontal orientation on a pie, stacking with a single series) is nor
 and the chart is kept, because discarding a usable chart over an inapplicable field would
 be a worse outcome than silently correcting it.
 
+## Amendment: derived share, and user-chosen presentation
+
+Two follow-on refinements, made after the first version shipped.
+
+**`value_format` was overloaded.** Asked for "the percentage share of payroll by
+department", the model returned raw payroll amounts with `value_format=percent`,
+meaning "show this as a share". The renderer appended a percent sign to the
+stored value and printed `710,000%`. The field was carrying two unrelated ideas:
+how a column is stored, and what a slice should be labelled with.
+
+They are now separate. `value_format` describes the column as stored and nothing
+else. A new `part_to_whole_display` (`value` / `percent` / `value_and_percent`,
+defaulting to the last) controls pie and donut slice labels, and the share is
+computed at render time as `slice / sum of plotted slices`. That derived figure
+is display-only: it never enters `rows`, grounding evidence, claims, or
+provenance, and a zero, negative, or non-finite total yields no share rather than
+a division. `ChartValidator` additionally forces `part_to_whole_display=value`
+when the values already are percentages, since `80% · 25.0%` would show two
+percentages of different wholes.
+
+Currency is rendered with fixed decimals but **no symbol**. The result carries no
+currency code and this platform holds multi-currency data, so printing one would
+assert something the data never said.
+
+**Presentation is now user-adjustable.** A "View as" control offers alternative
+renderers for the same validated rows. The AI's choice remains the default and
+is always listed first as *AI recommended*; the server's spec object is never
+rewritten, alternatives are derived copies, and switching changes no query,
+thread, row, answer, or provenance. `frontend/lib/charts/presentations.ts`
+mirrors `ChartValidator`'s rules so an alternative can never be offered that the
+backend would have rejected — it is a filter layered on server validation, never
+a replacement for it. The override resets when the analysis changes.
+
 ## Consequences
 
 - `AnalyticsResponse.schema_version` moves from `1.0` to `1.1`. The `chart` field replaces

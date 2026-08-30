@@ -1,11 +1,18 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { BarChart3, Table2 } from "lucide-react";
+import { BarChart3, Check, ChevronDown, Sparkles, Table2 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { DataTable } from "@/components/tables/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { chartPresentations } from "@/lib/charts/presentations";
 import { DUR, EASE_OUT, SPRING } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
@@ -49,7 +56,34 @@ export function EvidencePanel({ response }: { response: AnalyticsResponse }) {
   const [view, setView] = useState<"chart" | "table">(
     hasChart ? "chart" : "table",
   );
+  //: Presentation-only override of the AI's recommendation. Null means "use the
+  //: recommendation"; the server's spec object is never rewritten.
+  const [overrideId, setOverrideId] = useState<string | null>(null);
   const baseId = useId();
+
+  // A new analysis must not inherit the previous one's chosen presentation.
+  // Adjusting state during render is the documented React pattern for resetting
+  // on a prop change, and avoids the extra commit an effect would cost.
+  const [seenRequestId, setSeenRequestId] = useState(response.request_id);
+  if (seenRequestId !== response.request_id) {
+    setSeenRequestId(response.request_id);
+    setOverrideId(null);
+  }
+
+  const presentations = useMemo(
+    () =>
+      response.chart === null
+        ? []
+        : chartPresentations(
+            response.chart,
+            response.rows,
+            response.provenance.result.column_types,
+          ),
+    [response.chart, response.rows, response.provenance.result.column_types],
+  );
+
+  const active =
+    presentations.find((option) => option.id === overrideId) ?? presentations[0];
 
   if (response.columns.length === 0) return null;
 
@@ -82,6 +116,52 @@ export function EvidencePanel({ response }: { response: AnalyticsResponse }) {
             ) : null}
           </p>
         </div>
+
+        {view === "chart" && presentations.length > 1 && active !== undefined ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+              >
+                {active.recommended ? (
+                  <Sparkles className="size-3.5" aria-hidden="true" />
+                ) : null}
+                <span>View as</span>
+                <span className="text-foreground">{active.label}</span>
+                <ChevronDown className="size-3.5" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              {presentations.map((option) => (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() =>
+                    setOverrideId(option.recommended ? null : option.id)
+                  }
+                  className="gap-2 text-[13px]"
+                >
+                  {option.recommended ? (
+                    <Sparkles
+                      className="size-3.5 text-primary"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span className="size-3.5" aria-hidden="true" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.recommended
+                      ? `AI recommended — ${option.label}`
+                      : option.label}
+                  </span>
+                  {option.id === active.id ? (
+                    <Check className="size-3.5 text-primary" aria-hidden="true" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
 
         {views.length > 1 ? (
           <div
@@ -135,9 +215,10 @@ export function EvidencePanel({ response }: { response: AnalyticsResponse }) {
           id={`${baseId}-panel-${view}`}
           aria-labelledby={views.length > 1 ? `${baseId}-tab-${view}` : undefined}
         >
-          {view === "chart" && response.chart !== null ? (
+          {view === "chart" && active !== undefined ? (
             <div className="px-4 py-5">
-              <AnalyticsChart spec={response.chart} rows={response.rows} />
+              {/* Same validated rows, a different trusted renderer. */}
+              <AnalyticsChart spec={active.spec} rows={response.rows} />
             </div>
           ) : (
             <DataTable
