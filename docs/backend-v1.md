@@ -2,8 +2,8 @@
 
 ## Scope
 
-Backend v1 is a read-only conversational analytics service. It supports governed Cube metrics and
-ad-hoc SQL through one FastAPI contract. Frontend work, production model serving, deployment
+Backend v1 is a read-only conversational analytics service. It supports governed metrics (Wren by
+default; ADR 0011) and ad-hoc SQL through one FastAPI contract. Frontend work, production model serving, deployment
 architecture, and interactive enterprise tenant setup are intentionally outside this milestone.
 
 ## Request Lifecycle
@@ -14,7 +14,7 @@ FastAPI request
   -> AuthorizationGateway (OPA in staging/production)
   -> PostgreSQL LangGraph checkpoint load
   -> QueryRouter
-     -> governed metric: MetricRequestPlanner -> Cube MetricGateway
+     -> governed metric: MetricRequestPlanner -> MetricGateway (Wren)
      -> ad-hoc analytics: authorized metadata -> SemanticGateway
                          -> LLMGateway -> SQLGlot -> DatabaseGateway
   -> common grounding, chart validation, provenance, and checkpoint save
@@ -23,7 +23,7 @@ FastAPI request
 
 Authentication establishes identity; OPA owns permissions. OPA filters the physical PostgreSQL
 catalog before OpenMetadata, Wren/in-memory semantics, prompt construction, or schema-aware SQL
-validation. Governed metric IDs are authorized before Cube planning and execution. Neither the LLM
+validation. Governed metric IDs are authorized before metric planning and execution. Neither the LLM
 nor database content can grant access.
 
 Production authentication uses standards-based OIDC discovery and RS256 JWT validation. The
@@ -45,7 +45,7 @@ analytical context across requests and process restarts.
 | OPA | Schema/table/column/metric authorization | Authentication, SQL generation |
 | OpenMetadata | Optional descriptions, ownership, domains, glossary, sensitivity, lineage, freshness | SQL execution, metric formulas, authorization |
 | Wren or in-memory semantics | Relevant business context | Authorization, execution |
-| Cube | Certified metric definitions and execution | Ad-hoc SQL fallback |
+| MetricGateway (Wren by default, Cube selectable) | Certified metric definitions and execution | Ad-hoc SQL fallback |
 | LiteLLM `LLMGateway` | Logical alias to configured model provider | Data authorization |
 | SQLGlot | AST safety, allowed-schema validation, bounded SELECT | Physical database permissions |
 | `DatabaseGateway` | Read-only discovery and execution | Reasoning, policy, semantics |
@@ -81,15 +81,15 @@ when exposed, governance source/owner/freshness data, SQL validation/repair stat
 Endpoints:
 
 - `GET /health` and `GET /health/live`: process liveness
-- `GET /health/ready`: database and persistent-checkpoint readiness; optionally Cube readiness
-  with `READINESS_REQUIRE_METRIC_PROVIDER=1`
+- `GET /health/ready`: database and persistent-checkpoint readiness; optionally governed
+  metric provider readiness with `READINESS_REQUIRE_METRIC_PROVIDER=1`
 - `POST /analytics/query`: analytics workflow
 
 Every HTTP response includes `X-Request-ID`. OpenAPI documents success and typed error shapes.
 
 ## Grounding and Provenance
 
-Cube and SQL are normalized to `AnalyticalResult` before answer generation. The answer model sees
+Governed metric and SQL results are normalized to `AnalyticalResult` before answer generation. The answer model sees
 only the actual returned rows. Every non-empty response must include structured claims whose row,
 field, and value match the result. Unsupported numbers, claims against absent fields, and claims on
 empty results fail with a typed grounding error. Chart fields must exist in returned rows; arbitrary
@@ -117,7 +117,7 @@ export and Langfuse can later implement the same boundary; neither is required f
 Local development may copy `.env.example` to the Git-ignored `.env`; fake database, fake LLM,
 local identity, local policy, in-memory checkpointing, and disabled governance are explicit
 defaults. The integrated local stack instead selects PostgreSQL, PostgreSQL checkpoints, OPA,
-Cube, and LiteLLM explicitly. No repository file contains credentials.
+Wren, and LiteLLM explicitly. No repository file contains credentials.
 
 Production secrets must be injected as environment variables by the deployment platform or a
 future OpenBao/Vault/company secret manager. Secret values use `SecretStr`, are excluded from
@@ -130,14 +130,15 @@ secret sources only.
 
 Staging and production fail configuration validation when read-only verification is disabled, OPA
 is not selected, or fake database/LLM, local authentication, or in-memory checkpointing is selected.
-An enabled OPA, OpenMetadata, Cube, semantic, MCP, database, or model provider never silently falls
-back to another provider.
+An enabled OPA, OpenMetadata, metric, semantic, MCP, database, or model provider never silently
+falls back to another provider.
 
 ## Security Boundaries
 
 - OPA-filtered tables and columns are the maximum schema snapshot available to semantics, the LLM,
   and SQL validation; OpenMetadata can enrich but cannot broaden it.
-- Governed metrics are checked before Cube and cannot fall back to ad-hoc SQL.
+- Governed metrics are checked before the configured `MetricGateway` and cannot fall back to
+  ad-hoc SQL.
 - SQLGlot permits exactly one bounded read-only query, rejects projection stars and system catalogs,
   and validates tables/columns against the authorized snapshot.
 - Mutation, multi-statement, unsafe-function, and authorization failures are not repairable. Repaired
@@ -162,7 +163,7 @@ gcloud auth application-default login
 ```
 
 `start_backend.ps1` starts the analytics PostgreSQL database, dedicated checkpoint PostgreSQL,
-OPA, and Cube, then runs FastAPI. On Windows use this script or `python -m app.runtime`; that entry
+OPA, and Wren, then runs FastAPI. On Windows use this script or `python -m app.runtime`; that entry
 point selects the event loop required by psycopg. The required integrated settings are:
 
 ```dotenv
@@ -171,7 +172,7 @@ CONVERSATION_CHECKPOINT_PROVIDER=postgres
 CHECKPOINT_DATABASE_URL=postgresql://eda_checkpoint:${CHECKPOINT_PASSWORD}@localhost:5433/enterprise_checkpoints
 AUTHENTICATION_PROVIDER=local
 AUTHORIZATION_PROVIDER=opa
-METRIC_PROVIDER=cube
+METRIC_PROVIDER=wren
 SEMANTIC_PROVIDER=inmemory
 GOVERNANCE_PROVIDER=disabled
 LLM_PROVIDER=litellm

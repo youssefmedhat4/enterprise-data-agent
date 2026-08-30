@@ -15,10 +15,12 @@ class QueryRoute(StrEnum):
 class RouteReasonCode(StrEnum):
     WRITE_INTENT = "write_intent"
     FOLLOWUP_REFERENCE = "followup_reference"
+    FOLLOWUP_METRIC_SWITCH = "followup_metric_switch"
     FOLLOWUP_WITHOUT_CONTEXT = "followup_without_context"
     METRIC_EXACT_MATCH = "metric_exact_match"
     METRIC_SEMANTIC_MATCH = "metric_semantic_match"
     MULTIPLE_METRICS_UNSUPPORTED = "multiple_metrics_unsupported"
+    COMPOSITE_METRIC_REQUEST = "composite_metric_request"
     INSUFFICIENT_INFORMATION = "insufficient_information"
     UNAUTHORIZED_METRIC = "unauthorized_metric"
     ROW_LEVEL_LOOKUP = "row_level_lookup"

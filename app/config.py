@@ -320,8 +320,8 @@ class Settings(BaseSettings):
         default="llm",
         alias="SQL_GENERATION_PROVIDER",
     )
-    metric_provider: Literal["cube"] = Field(
-        default="cube",
+    metric_provider: Literal["cube", "wren"] = Field(
+        default="wren",
         alias="METRIC_PROVIDER",
     )
     cube_api_url: str = Field(default="http://localhost:4000", alias="CUBE_API_URL")

@@ -4,7 +4,12 @@ Date: 2026-08-24
 
 ## Status
 
-Accepted: **B. CUBE_PRIMARY**.
+**Superseded by [ADR 0011](0011-wren-governed-metrics.md).** The evidence, benchmark, and
+capability comparison below are preserved as the historical record of the original
+decision; they were not re-run or invalidated. ADR 0011 documents why the production
+default was changed to `METRIC_PROVIDER=wren` despite this evidence.
+
+Originally accepted: **B. CUBE_PRIMARY**.
 
 ## Context
 

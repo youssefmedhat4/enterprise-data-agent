@@ -19,8 +19,8 @@ from app.errors import ErrorCode, normalize_error
 from app.metrics.catalog import GOVERNED_METRICS, validate_metric_query
 from app.metrics.cube import CubeMetricGateway
 from app.metrics.factory import (
-    build_experimental_wren_metric_gateway,
     build_metric_gateway,
+    build_wren_metric_gateway,
 )
 from app.metrics.gateway import (
     MetricFilter,
@@ -233,14 +233,27 @@ async def test_cube_gateway_uses_only_structured_governed_members() -> None:
 
 
 def test_metric_factory_selection_is_explicit() -> None:
-    wren = build_experimental_wren_metric_gateway(
-        Settings(),
-        database=StubDatabase([]),
-    )
+    wren = build_wren_metric_gateway(Settings(), database=StubDatabase([]))
     cube = build_metric_gateway(Settings(METRIC_PROVIDER="cube"))
 
     assert isinstance(wren, WrenCubeMetricGateway)
     assert isinstance(cube, CubeMetricGateway)
+
+
+def test_metric_gateway_factory_routes_on_configured_provider() -> None:
+    routed_wren = build_metric_gateway(
+        Settings(METRIC_PROVIDER="wren"),
+        database=StubDatabase([]),
+    )
+    routed_cube = build_metric_gateway(Settings(METRIC_PROVIDER="cube"))
+
+    assert isinstance(routed_wren, WrenCubeMetricGateway)
+    assert isinstance(routed_cube, CubeMetricGateway)
+
+
+def test_metric_gateway_factory_requires_database_for_wren() -> None:
+    with pytest.raises(MetricProviderUnavailableError):
+        build_metric_gateway(Settings(METRIC_PROVIDER="wren"))
 
 
 def test_metric_provider_unavailable_is_sanitized_without_fallback() -> None:

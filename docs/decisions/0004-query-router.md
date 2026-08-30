@@ -43,8 +43,11 @@ IDs, and safe clarification/block fields. They contain no hidden reasoning prose
 3. Match exact catalog metric aliases.
 4. Match catalog semantic aliases when aggregate intent is present.
 5. Keep raw-record retrieval and non-governed calculations on the ad-hoc path.
-6. Clarify unresolved continuation or multiple governed metrics.
-7. Default permitted analytical questions to ad-hoc analytics.
+6. When two or more catalog metrics are named in one question, route to ad-hoc
+   analytics. Cube still executes one measure per request; a comparison table is
+   therefore SQL, not a clarification loop.
+7. Clarify only unresolved continuation when no prior analysis exists.
+8. Default permitted analytical questions to ad-hoc analytics.
 
 The router does not call an LLM. A future constrained classifier may be added only for
 unresolved cases and must preserve these deterministic high-confidence decisions.
@@ -57,21 +60,26 @@ approved time dimension/grain, bounded limit, and governed-member ordering. SQL,
 Cube schema, and arbitrary expressions are absent from the contract. Catalog validation is
 mandatory before execution.
 
-The current normalized gateway executes one metric per request. Multi-metric questions are
-therefore clarified with `multiple_metrics_unsupported`; the router does not issue hidden
-parallel queries. This limitation should be revisited only through a clean multi-measure
-extension to `MetricGateway` and its normalized result semantics.
+The current normalized gateway executes one metric per request. Multi-metric
+questions are routed to `adhoc_analytics` so Text-to-SQL can join the underlying
+facts at one grain. The router does not issue hidden parallel Cube queries. A
+clean multi-measure extension to `MetricGateway` remains the way to keep those
+comparisons on the governed path later.
 
 ## Follow-Ups and Clarification
 
 LangGraph checkpoints retain the minimum continuation state: effective route and the prior
 typed `MetricQuery` for governed requests. A follow-up such as `Only Engineering` preserves
-the metric and dimensions and adds a validated department filter. Ad-hoc follow-ups remain
+the metric and dimensions and adds a validated department filter. `by project` / `per X`
+is treated as a dimension continuation of the current metric. A follow-up that names a
+different catalog metric (`what about project cost by project`) switches the governed
+measure instead of re-asking which analysis to continue. Ad-hoc follow-ups remain
 ad-hoc and reuse the existing structured analytical context.
 
-When prior context is absent, multiple metrics are requested, or a governed filter is not
-representable, the graph clarifies or returns a typed planning failure before SQL or metric
-execution. No raw chain-of-thought is persisted.
+When prior context is absent and the user uses a continuation phrase, or a governed filter
+is not representable, the graph clarifies or returns a typed planning failure before SQL or
+metric execution. After a clarification turn, naming one catalog metric executes it.
+No raw chain-of-thought is persisted.
 
 ## Execution and Convergence
 
@@ -127,7 +135,7 @@ dimensions, filters, provider, execution source, routing latency, planning laten
 retrieval latency, and metric execution latency. These diagnostics are exposed publicly only
 under the existing explicit debug option.
 
-The deterministic 60-case router suite completed with 100% route and metric-ID accuracy,
+The deterministic router suite completed with 100% route and metric-ID accuracy,
 zero false governed-metric routes, and sub-millisecond development latency. These fixture
 results validate the implemented contract, not unconstrained natural-language coverage.
 

@@ -20,7 +20,7 @@ The model-independent pipeline now also includes:
 - Evidence-backed claims with deterministic grounding validation.
 - Typed, field-validated chart specifications with no executable chart code.
 - Separate internal and public provenance; SQL debug requires configuration and policy approval.
-- OPA authorization, optional OpenMetadata governance, Cube governed metrics, and deterministic
+- OPA authorization, optional OpenMetadata governance, Wren governed metrics, and deterministic
   query routing.
 - Vendor-neutral content-free request and LangGraph tracing.
 - Versioned analytics responses and sanitized application error codes.
@@ -153,34 +153,39 @@ See `docs/wren-semantic-layer.md` and
 ## Governed Metrics
 
 Official KPI queries use a separate `MetricGateway`; they do not let an LLM or caller replace
-the reviewed formula. ADR 0003 selects Cube Core as the production metric direction while Wren
-remains optional for semantic context. Start the pinned local Cube Core profile and run the
-provider-independent 25-case metric suite with:
-
-```powershell
-docker compose --env-file .env -f infra/compose/docker-compose.yml --profile cube up -d postgres cube
-$env:DATABASE_PROVIDER = "postgres"
-.\.venv\Scripts\enterprise-data-metrics.exe --provider cube --output artifacts\metrics-cube.json
-```
-
-The Wren cube path remains reproducible for the architecture experiment:
+the reviewed formula. ADR 0011 selects Wren as the production metric direction, superseding
+ADR 0003's original Cube Core choice; Wren remains credential-free and translation-only, and
+`DatabaseGateway` executes the revalidated SQL through the existing read-only role. Start the
+pinned local Wren profile and run the provider-independent 25-case metric suite with:
 
 ```powershell
 docker compose --env-file .env -f infra/compose/docker-compose.yml --profile wren up -d --build postgres wren
+$env:DATABASE_PROVIDER = "postgres"
 .\.venv\Scripts\enterprise-data-metrics.exe --provider wren --output artifacts\metrics-wren.json
 ```
 
-See `docs/governed-metrics.md` and `docs/decisions/0003-governed-metric-layer.md`.
+Cube Core remains fully implemented and selectable with `METRIC_PROVIDER=cube`:
+
+```powershell
+docker compose --env-file .env -f infra/compose/docker-compose.yml --profile cube up -d postgres cube
+.\.venv\Scripts\enterprise-data-metrics.exe --provider cube --output artifacts\metrics-cube.json
+```
+
+Both `--provider` values are always directly selectable through this CLI, regardless of the
+configured `METRIC_PROVIDER` default, so the two providers can still be benchmarked side by
+side. See `docs/governed-metrics.md`, `docs/decisions/0011-wren-governed-metrics.md`, and
+`docs/decisions/0003-governed-metric-layer.md` for the original evidence and the tradeoffs
+this decision accepts.
 
 ## Query Routing
 
 The API uses a deterministic-first `QueryRouter`. Governed KPI calculations are planned as
-typed `MetricQuery` requests and sent to Cube; row-level and ad-hoc questions continue through
+typed `MetricQuery` requests and sent to the configured `MetricGateway` (Wren by default); row-level and ad-hoc questions continue through
 semantic context, the SQL reasoner, SQLGlot, and `DatabaseGateway`. Clarification, mutation
 blocking, and governed-provider failure happen before query execution, with no cross-route
 fallback.
 
-Run the 60-case English, Arabic, and mixed-language routing baseline with:
+Run the English, Arabic, and mixed-language routing baseline with:
 
 ```powershell
 .\.venv\Scripts\enterprise-data-router-eval.exe `
@@ -243,7 +248,7 @@ gcloud auth application-default login
 .\scripts\start_backend.ps1
 ```
 
-The script starts analytics PostgreSQL, dedicated checkpoint PostgreSQL, OPA, and Cube before
+The script starts analytics PostgreSQL, dedicated checkpoint PostgreSQL, OPA, and Wren before
 FastAPI. Current model aliases use `vertex_ai/gemini-2.5-flash`. A future Ollama deployment only
 changes the `LLM_MODEL_*` aliases and `OLLAMA_API_BASE`; no graph code changes. See
 [`docs/backend-v1.md`](docs/backend-v1.md) for the complete lifecycle and security boundaries.

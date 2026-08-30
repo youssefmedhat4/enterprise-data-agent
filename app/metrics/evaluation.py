@@ -14,10 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.config import get_settings
 from app.data.factory import build_database_gateway
-from app.metrics.factory import (
-    build_experimental_wren_metric_gateway,
-    build_metric_gateway,
-)
+from app.metrics.cube import CubeMetricGateway, HTTPCubeClient
+from app.metrics.factory import build_wren_metric_gateway
 from app.metrics.gateway import (
     MetricGateway,
     MetricGatewayError,
@@ -219,11 +217,26 @@ async def _run(provider: Literal["wren", "cube"], output: Path) -> None:
     if provider == "wren" and settings.database_provider != "postgres":
         raise SystemExit("Wren metric evaluation requires DATABASE_PROVIDER=postgres.")
     database = build_database_gateway(settings) if provider == "wren" else None
-    gateway = (
-        build_experimental_wren_metric_gateway(settings, database=database)
-        if provider == "wren" and database is not None
-        else build_metric_gateway(settings)
-    )
+    # `--provider` is explicit and authoritative here regardless of the
+    # configured `METRIC_PROVIDER` default, so both providers can always be
+    # benchmarked side by side without editing `.env`.
+    gateway: MetricGateway
+    if provider == "wren":
+        assert database is not None
+        gateway = build_wren_metric_gateway(settings, database=database)
+    else:
+        token = (
+            settings.cube_api_token.get_secret_value()
+            if settings.cube_api_token is not None
+            else None
+        )
+        gateway = CubeMetricGateway(
+            HTTPCubeClient(
+                settings.cube_api_url,
+                timeout_seconds=settings.cube_timeout_seconds,
+                api_token=token,
+            )
+        )
     try:
         if not await gateway.health_check():
             raise SystemExit(f"Configured metric provider '{provider}' is unavailable.")

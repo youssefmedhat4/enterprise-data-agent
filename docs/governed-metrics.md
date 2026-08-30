@@ -8,9 +8,9 @@ execution). A `MetricQuery` accepts only a metric ID, approved dimensions, appro
 an approved time dimension/grain, and a bounded limit. There is no caller-supplied formula
 or SQL field.
 
-The approved production direction is `METRIC_PROVIDER=cube`. The Wren cube implementation
-is retained only as reproducible ADR 0003 experiment evidence and is available through an
-explicit experiment builder, not through production provider configuration.
+The approved production direction is `METRIC_PROVIDER=wren` (ADR 0011, superseding ADR 0003's
+original `cube` choice). `CubeMetricGateway` remains fully implemented and selectable with
+`METRIC_PROVIDER=cube`; it is not removed, only no longer the default.
 
 ## Metrics
 
@@ -30,13 +30,16 @@ fanout.
 
 ## Local Services
 
-Start Wren's translation-only experiment path:
+Start Wren's translation-only path (the default `METRIC_PROVIDER`):
 
 ```powershell
 docker compose --env-file .env -f infra/compose/docker-compose.yml --profile wren up -d --build postgres wren
 ```
 
-Start the selected Cube Core development path:
+Wren never receives database credentials; it translates a `MetricQuery` to SQL only, and
+`DatabaseGateway` executes the SQLGlot-revalidated result with the `eda_readonly` role.
+
+Cube Core remains available as a selectable alternative provider:
 
 ```powershell
 docker compose --env-file .env -f infra/compose/docker-compose.yml --profile cube up -d postgres cube

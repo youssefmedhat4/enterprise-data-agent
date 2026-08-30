@@ -38,6 +38,10 @@ _FOLLOWUP_TERMS = (
     "نفسها",
     "فقط",
 )
+_DIMENSION_CONTINUATION = re.compile(
+    r"^(by|per|حسب)\s+\S+(?:\s+\S+)?$",
+    re.UNICODE,
+)
 _RAW_LOOKUP_TERMS = (
     "show every",
     "show each employee",
@@ -113,12 +117,31 @@ class DeterministicQueryRouter:
                 block_reason="This analytics service does not permit data modification.",
             )
 
-        if _is_followup(normalized):
-            decision = self._followup_decision(prior_context)
+        if _is_continuable_followup(normalized, prior_context):
+            decision = self._followup_decision(normalized, prior_context)
             if _contains_unauthorized_metric(decision.metric_candidates, allowed_metric_ids):
                 return _unauthorized_metric_decision(decision.metric_candidates)
             return decision
 
+        if _is_followup(normalized) and not _is_clarification_resume(prior_context):
+            return RouteDecision(
+                route=QueryRoute.CLARIFY,
+                confidence=1,
+                reason_code=RouteReasonCode.FOLLOWUP_WITHOUT_CONTEXT,
+                requires_prior_context=True,
+                clarification_reason=(
+                    "The request refers to an earlier analysis that is unavailable."
+                ),
+                clarification_question="Which analysis should I continue?",
+            )
+
+        return self._route_fresh_question(normalized, allowed_metric_ids)
+
+    def _route_fresh_question(
+        self,
+        normalized: str,
+        allowed_metric_ids: frozenset[str] | None,
+    ) -> RouteDecision:
         matches = _metric_matches(normalized)
         if any(normalize_text(term) in normalized for term in _ADHOC_COMPOSITE_TERMS):
             return RouteDecision(
@@ -140,15 +163,14 @@ class DeterministicQueryRouter:
             if _contains_unauthorized_metric(candidates, allowed_metric_ids):
                 return _unauthorized_metric_decision(candidates)
             if len(candidates) > 1:
+                # Cube still executes one measure. Naming two certified KPIs in one
+                # question is a comparison, which belongs on Text-to-SQL rather than
+                # a "pick one metric" loop.
                 return RouteDecision(
-                    route=QueryRoute.CLARIFY,
-                    confidence=0.98,
-                    reason_code=RouteReasonCode.MULTIPLE_METRICS_UNSUPPORTED,
+                    route=QueryRoute.ADHOC_ANALYTICS,
+                    confidence=0.97,
+                    reason_code=RouteReasonCode.COMPOSITE_METRIC_REQUEST,
                     metric_candidates=candidates,
-                    clarification_reason=(
-                        "The current governed path supports one metric per request."
-                    ),
-                    clarification_question="Which single governed metric should I calculate first?",
                 )
             metric_id, matched_alias = candidates[0], _best_alias(matches, candidates[0])
             exact = normalized == matched_alias or normalized in {
@@ -178,23 +200,37 @@ class DeterministicQueryRouter:
 
     def _followup_decision(
         self,
+        normalized: str,
         prior_context: AnalyticalContext | None,
     ) -> RouteDecision:
-        if prior_context is None or prior_context.execution_route is None:
+        assert prior_context is not None and prior_context.execution_route is not None
+        matches = _metric_matches(normalized)
+        candidates = _select_metric_candidates(normalized, matches) if matches else ()
+        if len(candidates) > 1:
             return RouteDecision(
-                route=QueryRoute.CLARIFY,
-                confidence=1,
-                reason_code=RouteReasonCode.FOLLOWUP_WITHOUT_CONTEXT,
+                route=QueryRoute.ADHOC_ANALYTICS,
+                confidence=0.97,
+                reason_code=RouteReasonCode.COMPOSITE_METRIC_REQUEST,
+                metric_candidates=candidates,
                 requires_prior_context=True,
-                clarification_reason=(
-                    "The request refers to an earlier analysis that is unavailable."
-                ),
-                clarification_question="Which analysis should I continue?",
+            )
+        prior_metric = (
+            prior_context.metric_query.metric
+            if prior_context.metric_query is not None
+            else None
+        )
+        if len(candidates) == 1 and candidates[0] != prior_metric:
+            return RouteDecision(
+                route=QueryRoute.GOVERNED_METRIC,
+                confidence=0.97,
+                reason_code=RouteReasonCode.FOLLOWUP_METRIC_SWITCH,
+                metric_candidates=candidates,
+                requires_prior_context=True,
             )
         route = QueryRoute(prior_context.execution_route)
         metric_candidates = (
-            (prior_context.metric_query.metric,)
-            if route == QueryRoute.GOVERNED_METRIC and prior_context.metric_query is not None
+            (prior_metric,)
+            if route == QueryRoute.GOVERNED_METRIC and prior_metric is not None
             else ()
         )
         return RouteDecision(
@@ -225,6 +261,30 @@ def _is_followup(normalized: str) -> bool:
     return any(normalize_text(term) in normalized for term in _FOLLOWUP_TERMS)
 
 
+def _is_clarification_resume(prior_context: AnalyticalContext | None) -> bool:
+    return prior_context is not None and prior_context.clarification_state == "required"
+
+
+def _is_dimension_continuation(
+    normalized: str,
+    prior_context: AnalyticalContext | None,
+) -> bool:
+    return (
+        prior_context is not None
+        and prior_context.execution_route is not None
+        and _DIMENSION_CONTINUATION.match(normalized) is not None
+    )
+
+
+def _is_continuable_followup(
+    normalized: str,
+    prior_context: AnalyticalContext | None,
+) -> bool:
+    if prior_context is None or prior_context.execution_route is None:
+        return False
+    return _is_followup(normalized) or _is_dimension_continuation(normalized, prior_context)
+
+
 def _is_row_lookup(normalized: str) -> bool:
     return any(normalize_text(term) in normalized for term in _RAW_LOOKUP_TERMS)
 
@@ -239,12 +299,18 @@ def _has_metric_calculation_intent(normalized: str) -> bool:
     ) or normalized.startswith(("what is ", "how much ", "ما هو ", "كم "))
 
 
+def _contains_alias(normalized: str, alias: str) -> bool:
+    if not alias:
+        return False
+    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", normalized) is not None
+
+
 def _metric_matches(normalized: str) -> list[tuple[str, str]]:
     matches: list[tuple[str, str]] = []
     for definition in GOVERNED_METRICS:
         for alias in (definition.id, *definition.aliases):
             normalized_alias = normalize_text(alias)
-            if normalized_alias and normalized_alias in normalized:
+            if _contains_alias(normalized, normalized_alias):
                 matches.append((definition.id, normalized_alias))
     return matches
 
@@ -253,16 +319,11 @@ def _select_metric_candidates(
     normalized: str,
     matches: list[tuple[str, str]],
 ) -> tuple[str, ...]:
+    del normalized
     best_by_metric: dict[str, int] = {}
     for metric_id, alias in matches:
         best_by_metric[metric_id] = max(best_by_metric.get(metric_id, 0), len(alias))
-    if len(best_by_metric) == 1:
-        return tuple(best_by_metric)
-    connector = any(token in normalized for token in (" and ", " & ", " و "))
-    if connector:
-        return tuple(best_by_metric)
-    longest = max(best_by_metric.values())
-    return tuple(metric_id for metric_id, length in best_by_metric.items() if length == longest)
+    return tuple(best_by_metric)
 
 
 def _best_alias(matches: list[tuple[str, str]], metric_id: str) -> str:

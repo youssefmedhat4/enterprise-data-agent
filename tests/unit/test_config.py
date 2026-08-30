@@ -65,6 +65,26 @@ def test_metric_provider_configuration_is_explicit() -> None:
     assert settings.cube_timeout_seconds == 12
 
 
+def test_metric_provider_defaults_to_wren() -> None:
+    # `tests/conftest.py` sets METRIC_PROVIDER=cube in the ambient test
+    # environment for the whole suite, so a bare Settings() here would read
+    # that override rather than the field's actual default. Inspect the field
+    # default directly instead.
+    assert Settings.model_fields["metric_provider"].default == "wren"
+
+
+def test_wren_metric_provider_is_explicit() -> None:
+    settings = Settings(
+        METRIC_PROVIDER="wren",
+        WREN_MCP_URL="http://wren.test:8080/mcp",
+        WREN_TIMEOUT_SECONDS=7,
+    )
+
+    assert settings.metric_provider == "wren"
+    assert settings.wren_mcp_url == "http://wren.test:8080/mcp"
+    assert settings.wren_timeout_seconds == 7
+
+
 def test_staging_postgres_cannot_disable_read_only_verification() -> None:
     with pytest.raises(ValueError, match="DB_REQUIRE_READ_ONLY"):
         Settings(

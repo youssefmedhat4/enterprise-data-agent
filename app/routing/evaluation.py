@@ -29,6 +29,7 @@ class RouterCase(BaseModel):
     prior_route: Literal["governed_metric", "adhoc_analytics"] | None = None
     prior_metric_id: str | None = None
     prior_dimensions: tuple[str, ...] = ()
+    prior_clarification_state: Literal["none", "required", "blocked"] | None = None
 
 
 class RouterCaseOutcome(BaseModel):
@@ -56,7 +57,10 @@ def evaluate_router_cases(path: Path) -> dict[str, object]:
         decision = router.route(case.question, prior_context=_prior_context(case))
         latency_ms = (perf_counter() - started) * 1000
         actual_metric_id = (
-            decision.metric_candidates[0] if len(decision.metric_candidates) == 1 else None
+            decision.metric_candidates[0]
+            if decision.route == QueryRoute.GOVERNED_METRIC
+            and len(decision.metric_candidates) == 1
+            else None
         )
         outcomes.append(
             RouterCaseOutcome(
@@ -76,7 +80,7 @@ def evaluate_router_cases(path: Path) -> dict[str, object]:
 
 
 def _prior_context(case: RouterCase) -> AnalyticalContext | None:
-    if case.prior_route is None:
+    if case.prior_route is None and case.prior_clarification_state is None:
         return None
     metric_query = None
     if case.prior_metric_id is not None:
@@ -89,6 +93,7 @@ def _prior_context(case: RouterCase) -> AnalyticalContext | None:
         resolved_question="prior analytical question",
         execution_route=case.prior_route,
         metric_query=metric_query,
+        clarification_state=case.prior_clarification_state or "none",
     )
 
 

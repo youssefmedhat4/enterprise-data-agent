@@ -107,13 +107,58 @@ def test_unsupported_governed_filter_fails_closed() -> None:
         MetricRequestPlanner().plan("Invoice amount for active customers", decision)
 
 
-def test_multiple_metrics_require_clarification() -> None:
+def test_multiple_metrics_route_to_adhoc_instead_of_clarifying() -> None:
     decision = DeterministicQueryRouter().route(
         "Show project cost and project margin by project"
     )
 
-    assert decision.route == QueryRoute.CLARIFY
+    assert decision.route == QueryRoute.ADHOC_ANALYTICS
     assert set(decision.metric_candidates) == {"project_cost", "project_margin"}
+
+
+def test_dimension_only_followup_keeps_the_current_metric() -> None:
+    prior = AnalyticalContext(
+        previous_question="Show project margin",
+        resolved_question="Show project margin",
+        execution_route="governed_metric",
+        metric_query=MetricQuery(metric="project_margin"),
+    )
+    decision = DeterministicQueryRouter().route("by project", prior_context=prior)
+
+    assert decision.route == QueryRoute.GOVERNED_METRIC
+    assert decision.metric_candidates == ("project_margin",)
+    assert decision.requires_prior_context is True
+
+
+def test_followup_that_names_another_metric_switches() -> None:
+    prior = AnalyticalContext(
+        previous_question="Project margin by project",
+        resolved_question="Project margin by project",
+        execution_route="governed_metric",
+        metric_query=MetricQuery(metric="project_margin", dimensions=("project",)),
+    )
+    decision = DeterministicQueryRouter().route(
+        "what about project cost by project",
+        prior_context=prior,
+    )
+
+    assert decision.route == QueryRoute.GOVERNED_METRIC
+    assert decision.metric_candidates == ("project_cost",)
+
+
+def test_metric_name_after_clarification_executes_instead_of_asking_which_analysis() -> None:
+    prior = AnalyticalContext(
+        previous_question="Show project cost and project margin by project",
+        resolved_question="Show project cost and project margin by project",
+        clarification_state="required",
+    )
+    decision = DeterministicQueryRouter().route(
+        "only project margin by project",
+        prior_context=prior,
+    )
+
+    assert decision.route == QueryRoute.GOVERNED_METRIC
+    assert decision.metric_candidates == ("project_margin",)
 
 
 def test_metric_planning_failure_is_safely_normalized() -> None:
@@ -128,8 +173,8 @@ def test_router_dataset_is_unique_and_fully_accurate() -> None:
     cases = load_router_cases(path)
     report = evaluate_router_cases(path)
 
-    assert len(cases) == 60
-    assert len({case.id for case in cases}) == 60
+    assert len(cases) == 65
+    assert len({case.id for case in cases}) == 65
     assert {case.language for case in cases} == {"en", "ar", "mixed"}
-    assert report["passed"] == 60
+    assert report["passed"] == 65
     assert report["false_governed_metric_routes"] == 0

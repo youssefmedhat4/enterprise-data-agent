@@ -166,6 +166,36 @@ async def test_block_path_invokes_neither_provider() -> None:
 
 
 @pytest.mark.asyncio
+async def test_composite_metric_question_uses_adhoc_sql() -> None:
+    database = FakeDatabaseGateway()
+    metrics = FakeMetricGateway()
+    llm = AdhocSQLLLM()
+    graph = build_graph(
+        db_gateway=database,
+        llm_gateway=llm,
+        sql_validator=SQLValidator(),
+        metric_gateway=metrics,
+        enable_query_router=True,
+        generate_answer=False,
+    )
+
+    result = await graph.ainvoke(
+        {
+            "request_id": "composite-request",
+            "trace_id": "composite-trace",
+            "thread_id": "composite-thread",
+            "question": "Show project cost and project margin by project",
+        }
+    )
+
+    assert metrics.queries == []
+    assert llm.calls == 1
+    assert len(database.executed_sql) == 1
+    assert result["analytical_result"].source_type == "adhoc_sql"
+    assert result["internal_provenance"].route == "adhoc_analytics"
+
+
+@pytest.mark.asyncio
 async def test_clarification_path_executes_nothing() -> None:
     database = FakeDatabaseGateway()
     metrics = FakeMetricGateway()
@@ -183,7 +213,7 @@ async def test_clarification_path_executes_nothing() -> None:
             "request_id": "clarify-request",
             "trace_id": "clarify-trace",
             "thread_id": "clarify-thread",
-            "question": "Show project cost and project margin by project",
+            "question": "Only Engineering",
         }
     )
 
@@ -257,6 +287,7 @@ async def test_metric_followup_stays_governed_and_adds_filter() -> None:
         sql_validator=SQLValidator(),
         metric_gateway=metrics,
         enable_query_router=True,
+        generate_answer=False,
         checkpointer=InMemorySaver(),
     )
     config = {"configurable": {"thread_id": "metric-followup"}}
@@ -290,6 +321,87 @@ async def test_metric_followup_stays_governed_and_adds_filter() -> None:
             "annual_base_payroll": Decimal("710000.00"),
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_dimension_followup_keeps_governed_metric() -> None:
+    metrics = FakeMetricGateway()
+    graph = build_graph(
+        db_gateway=FakeDatabaseGateway(),
+        llm_gateway=RecordingLLM(),
+        sql_validator=SQLValidator(),
+        metric_gateway=metrics,
+        enable_query_router=True,
+        generate_answer=False,
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "dimension-followup"}}
+
+    await graph.ainvoke(
+        {
+            "request_id": "margin-1",
+            "trace_id": "margin-1",
+            "thread_id": "dimension-followup",
+            "question": "Show me margin",
+        },
+        config=config,
+    )
+    second = await graph.ainvoke(
+        {
+            "request_id": "margin-2",
+            "trace_id": "margin-2",
+            "thread_id": "dimension-followup",
+            "question": "by project",
+        },
+        config=config,
+    )
+
+    assert [query.metric for query in metrics.queries] == [
+        "project_margin",
+        "project_margin",
+    ]
+    assert metrics.queries[1].dimensions == ("project",)
+    assert second["internal_provenance"].route == "governed_metric"
+
+
+@pytest.mark.asyncio
+async def test_followup_can_switch_governed_metric() -> None:
+    metrics = FakeMetricGateway()
+    graph = build_graph(
+        db_gateway=FakeDatabaseGateway(),
+        llm_gateway=RecordingLLM(),
+        sql_validator=SQLValidator(),
+        metric_gateway=metrics,
+        enable_query_router=True,
+        generate_answer=False,
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "switch-metric"}}
+
+    await graph.ainvoke(
+        {
+            "request_id": "switch-1",
+            "trace_id": "switch-1",
+            "thread_id": "switch-metric",
+            "question": "Project margin by project",
+        },
+        config=config,
+    )
+    await graph.ainvoke(
+        {
+            "request_id": "switch-2",
+            "trace_id": "switch-2",
+            "thread_id": "switch-metric",
+            "question": "what about project cost by project",
+        },
+        config=config,
+    )
+
+    assert [query.metric for query in metrics.queries] == [
+        "project_margin",
+        "project_cost",
+    ]
+    assert metrics.queries[1].dimensions == ("project",)
 
 
 @pytest.mark.asyncio
