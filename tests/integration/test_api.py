@@ -44,11 +44,13 @@ async def test_analytics_api_returns_rows_answer_chart_and_provenance() -> None:
     payload = response.json()
     assert len(payload["rows"]) == 4
     assert payload["rows"][0]["department"] == "Engineering"
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert payload["status"] == "completed"
     assert payload["thread_id"]
     assert payload["columns"][0] == "department"
     assert payload["chart"]["type"] == "bar"
+    assert payload["chart"]["measures"] == ["total_salary"]
+    assert payload["chart"]["orientation"] == "horizontal"
     assert payload["provenance"]["result"]["row_count"] == 4
     assert payload["provenance"]["debug"] is None
     assert payload["sources"] == ["synthetic-enterprise"]

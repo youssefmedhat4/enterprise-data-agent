@@ -42,7 +42,7 @@ async def test_vertical_slice_returns_grounded_department_payroll() -> None:
     }
     assert "Engineering: 4 employees" in result["final_answer"]
     assert "People Operations: 1 employees" in result["final_answer"]
-    assert result["chart_spec"].y == "total_salary"
+    assert result["chart_spec"].measures == ["total_salary"]
     provenance = result["internal_provenance"]
     assert provenance.request_id == "request-test"
     assert provenance.result.row_count == 4

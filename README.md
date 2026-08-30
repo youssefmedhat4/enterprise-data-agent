@@ -18,7 +18,9 @@ The model-independent pipeline now also includes:
 - Structured analytical thread context with injected LangGraph checkpoint persistence.
 - An in-memory development checkpointer that is rejected for production configuration.
 - Evidence-backed claims with deterministic grounding validation.
-- Typed, field-validated chart specifications with no executable chart code.
+- AI-selected, schema-validated visualizations: the model picks the chart type and
+  channels, the backend verifies every referenced column against the real result, and no
+  executable chart code is ever accepted (ADR 0012).
 - Separate internal and public provenance; SQL debug requires configuration and policy approval.
 - OPA authorization, optional OpenMetadata governance, Wren governed metrics, and deterministic
   query routing.

@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -11,9 +13,12 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 
 import {
@@ -27,10 +32,14 @@ import type { ChartSpec, ResultRow } from "@/lib/types/analytics";
 /**
  * Renders the backend's validated ChartSpec.
  *
- * The spec is authoritative: the backend has already confirmed the fields exist
- * in `rows`, that the measure is numeric, and that pie/donut measures are
- * non-negative. Nothing here derives a new measure — values come straight from
- * the returned rows and are only coerced from Decimal-as-string to number.
+ * The spec is authoritative: `ChartValidator` has already confirmed the fields
+ * exist in `rows`, that measures are numeric, that scatter has a numeric x, and
+ * that pie/donut measures are non-negative and few enough to read. Nothing here
+ * derives a new measure — values come straight from the returned rows and are
+ * only coerced from Decimal-as-string to number.
+ *
+ * Sorting and limiting are display-only and come from the spec; they reorder or
+ * truncate rows that already exist and never change a value.
  *
  * The library's defaults are overridden throughout so charts belong to this
  * product rather than looking like stock Recharts.
@@ -46,7 +55,7 @@ const SERIES_COLORS = [
 ] as const;
 
 const MAX_CATEGORIES = 24;
-const MAX_SLICES = 8;
+const MAX_SLICES = 12;
 
 interface AnalyticsChartProps {
   spec: ChartSpec;
@@ -60,51 +69,80 @@ interface Prepared {
   omitted: number;
 }
 
+/** Format a value for tooltips and labels according to the spec's intent. */
+function formatValue(value: number, format: ChartSpec["value_format"]): string {
+  if (format === "percent") return `${formatNumber(value)}%`;
+  return formatNumber(value);
+}
+
 function prepare(spec: ChartSpec, rows: ResultRow[]): Prepared {
-  const { x, y, series } = spec;
+  const { x, measures, series } = spec;
+  const cap = Math.min(spec.limit ?? MAX_CATEGORIES, MAX_CATEGORIES);
 
-  if (series === null) {
-    const data: Record<string, string | number>[] = [];
+  let data: Record<string, string | number>[];
+  let seriesKeys: string[];
+
+  if (series !== null) {
+    // Long format: pivot each distinct `series` value into its own key.
+    const measure = measures[0];
+    const byCategory = new Map<string, Record<string, string | number>>();
+    const keys: string[] = [];
+
     for (const row of rows) {
-      const value = toNumber(row[y] ?? null);
+      const value = toNumber(row[measure] ?? null);
       if (value === null) continue;
-      data.push({ [x]: String(row[x] ?? "—"), [y]: value });
+      const category = String(row[x] ?? "—");
+      const group = String(row[series] ?? "—");
+      if (!keys.includes(group)) keys.push(group);
+      const entry = byCategory.get(category) ?? { [x]: category };
+      entry[group] = value;
+      byCategory.set(category, entry);
     }
-    const limited = data.slice(0, MAX_CATEGORIES);
-    return {
-      data: limited,
-      seriesKeys: [y],
-      colorFor: new Map([[y, SERIES_COLORS[0]]]),
-      omitted: data.length - limited.length,
-    };
+
+    seriesKeys = keys.slice(0, SERIES_COLORS.length);
+    data = [...byCategory.values()];
+  } else {
+    // Wide format: each measure column is already its own series.
+    seriesKeys = measures.slice(0, SERIES_COLORS.length);
+    data = [];
+    for (const row of rows) {
+      // Scatter needs a numeric x; every other type treats x as a category
+      // label. The validator has already guaranteed x is numeric for scatter.
+      const xValue =
+        spec.type === "scatter"
+          ? (toNumber(row[x] ?? null) ?? 0)
+          : String(row[x] ?? "—");
+      const entry: Record<string, string | number> = { [x]: xValue };
+      let hasValue = false;
+      for (const measure of seriesKeys) {
+        const value = toNumber(row[measure] ?? null);
+        if (value !== null) {
+          entry[measure] = value;
+          hasValue = true;
+        }
+      }
+      if (hasValue) data.push(entry);
+    }
   }
 
-  const byCategory = new Map<string, Record<string, string | number>>();
-  const seriesKeys: string[] = [];
-
-  for (const row of rows) {
-    const value = toNumber(row[y] ?? null);
-    if (value === null) continue;
-    const category = String(row[x] ?? "—");
-    const group = String(row[series] ?? "—");
-    if (!seriesKeys.includes(group)) seriesKeys.push(group);
-    const entry = byCategory.get(category) ?? { [x]: category };
-    entry[group] = value;
-    byCategory.set(category, entry);
+  if (spec.sort !== "none" && seriesKeys.length > 0) {
+    const key = seriesKeys[0];
+    const direction = spec.sort === "ascending" ? 1 : -1;
+    data = [...data].sort(
+      (left, right) => (Number(left[key] ?? 0) - Number(right[key] ?? 0)) * direction,
+    );
   }
 
-  const limitedKeys = seriesKeys.slice(0, SERIES_COLORS.length);
+  const limited = data.slice(0, cap);
   const colorFor = new Map(
-    limitedKeys.map((key, index) => [key, SERIES_COLORS[index]] as const),
+    seriesKeys.map((key, index) => [key, SERIES_COLORS[index]] as const),
   );
-  const data = [...byCategory.values()].slice(0, MAX_CATEGORIES);
 
   return {
-    data,
-    seriesKeys: limitedKeys,
+    data: limited,
+    seriesKeys,
     colorFor,
-    omitted:
-      byCategory.size - data.length + (seriesKeys.length - limitedKeys.length),
+    omitted: data.length - limited.length,
   };
 }
 
@@ -122,10 +160,12 @@ function ChartTooltip({
   active,
   payload,
   label,
+  valueFormat,
 }: {
   active?: boolean;
   payload?: { name?: string; value?: number; color?: string }[];
   label?: string;
+  valueFormat: ChartSpec["value_format"];
 }) {
   if (active !== true || payload === undefined || payload.length === 0) {
     return null;
@@ -155,7 +195,9 @@ function ChartTooltip({
               {humanizeColumn(String(item.name ?? ""))}
             </span>
             <span className="tnum font-medium text-popover-foreground">
-              {item.value === undefined ? "—" : formatNumber(item.value)}
+              {item.value === undefined
+                ? "—"
+                : formatValue(item.value, valueFormat)}
             </span>
           </li>
         ))}
@@ -204,7 +246,36 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
   }
 
   const isCircular = spec.type === "pie" || spec.type === "donut";
+  const isHorizontal = spec.type === "bar" && spec.orientation === "horizontal";
+  const stacked = spec.mode === "stacked";
   const showLegend = seriesKeys.length > 1;
+  const stackId = stacked ? "stack" : undefined;
+
+  const tooltip = <ChartTooltip valueFormat={spec.value_format} />;
+  const grid = (
+    <CartesianGrid
+      vertical={isHorizontal}
+      horizontal={!isHorizontal}
+      stroke="var(--hairline)"
+      strokeDasharray="0"
+    />
+  );
+
+  // Category and value axes swap roles when bars run horizontally.
+  const categoryAxisProps = {
+    dataKey: spec.x,
+    tick: AXIS_TICK,
+    tickMargin: 10,
+    tickFormatter: truncateLabel,
+    label: spec.x_label
+      ? { value: spec.x_label, position: "insideBottom" as const, offset: -4, fill: "var(--muted-foreground)", fontSize: 11 }
+      : undefined,
+  };
+  const valueAxisProps = {
+    tick: AXIS_TICK,
+    tickMargin: 8,
+    tickFormatter: (value: number) => formatCompact(value),
+  };
 
   const circularData = isCircular
     ? data
@@ -218,7 +289,7 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
   return (
     <figure className="min-w-0">
       <figcaption className="sr-only">
-        {spec.title}. {humanizeColumn(spec.y)}
+        {spec.title}. {humanizeColumn(spec.measures.join(", "))}
         {isCircular ? "" : ` by ${humanizeColumn(spec.x).toLowerCase()}`}.
       </figcaption>
 
@@ -226,7 +297,7 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           {isCircular ? (
             <PieChart>
-              <Tooltip content={<ChartTooltip />} cursor={false} />
+              <Tooltip content={tooltip} cursor={false} />
               <Pie
                 data={circularData}
                 dataKey="value"
@@ -247,28 +318,41 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
                 ))}
               </Pie>
             </PieChart>
-          ) : spec.type === "line" ? (
-            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid
-                vertical={false}
-                stroke="var(--hairline)"
-                strokeDasharray="0"
-              />
+          ) : spec.type === "scatter" ? (
+            <ScatterChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              {grid}
               <XAxis
+                type="number"
                 dataKey={spec.x}
                 tick={AXIS_TICK}
                 tickMargin={10}
-                tickFormatter={truncateLabel}
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                tick={AXIS_TICK}
-                tickMargin={8}
-                width={52}
                 tickFormatter={(value: number) => formatCompact(value)}
               />
+              <YAxis
+                type="number"
+                dataKey={seriesKeys[0]}
+                width={52}
+                {...valueAxisProps}
+              />
+              <ZAxis range={[45, 45]} />
               <Tooltip
-                content={<ChartTooltip />}
+                content={tooltip}
+                cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
+              />
+              <Scatter
+                data={data}
+                fill={colorFor.get(seriesKeys[0])}
+                animationDuration={620}
+                animationEasing="ease-out"
+              />
+            </ScatterChart>
+          ) : spec.type === "line" ? (
+            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              {grid}
+              <XAxis {...categoryAxisProps} interval="preserveStartEnd" />
+              <YAxis width={52} {...valueAxisProps} />
+              <Tooltip
+                content={tooltip}
                 cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
               />
               {seriesKeys.map((key) => (
@@ -285,36 +369,66 @@ export function AnalyticsChart({ spec, rows }: AnalyticsChartProps) {
                 />
               ))}
             </LineChart>
-          ) : (
-            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid
-                vertical={false}
-                stroke="var(--hairline)"
-                strokeDasharray="0"
-              />
-              <XAxis
-                dataKey={spec.x}
-                tick={AXIS_TICK}
-                tickMargin={10}
-                tickFormatter={truncateLabel}
-                interval={0}
-              />
-              <YAxis
-                tick={AXIS_TICK}
-                tickMargin={8}
-                width={52}
-                tickFormatter={(value: number) => formatCompact(value)}
-              />
+          ) : spec.type === "area" ? (
+            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              {grid}
+              <XAxis {...categoryAxisProps} interval="preserveStartEnd" />
+              <YAxis width={52} {...valueAxisProps} />
               <Tooltip
-                content={<ChartTooltip />}
+                content={tooltip}
+                cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
+              />
+              {seriesKeys.map((key) => (
+                <Area
+                  key={key}
+                  dataKey={key}
+                  type="monotone"
+                  stackId={stackId}
+                  stroke={colorFor.get(key)}
+                  fill={colorFor.get(key)}
+                  fillOpacity={0.18}
+                  strokeWidth={2}
+                  animationDuration={700}
+                  animationEasing="ease-out"
+                />
+              ))}
+            </AreaChart>
+          ) : (
+            <BarChart
+              data={data}
+              layout={isHorizontal ? "vertical" : "horizontal"}
+              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            >
+              {grid}
+              {isHorizontal ? (
+                <>
+                  <XAxis type="number" {...valueAxisProps} />
+                  <YAxis
+                    type="category"
+                    dataKey={spec.x}
+                    tick={AXIS_TICK}
+                    tickMargin={8}
+                    tickFormatter={truncateLabel}
+                    width={110}
+                  />
+                </>
+              ) : (
+                <>
+                  <XAxis {...categoryAxisProps} interval={0} />
+                  <YAxis width={52} {...valueAxisProps} />
+                </>
+              )}
+              <Tooltip
+                content={tooltip}
                 cursor={{ fill: "var(--muted)", opacity: 0.5 }}
               />
               {seriesKeys.map((key) => (
                 <Bar
                   key={key}
                   dataKey={key}
+                  stackId={stackId}
                   fill={colorFor.get(key)}
-                  radius={[4, 4, 0, 0]}
+                  radius={isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
                   maxBarSize={48}
                   animationDuration={620}
                   animationEasing="ease-out"

@@ -169,8 +169,10 @@ class FakeLLMGateway(LLMGateway):
                     "chart_type": "bar",
                     "title": "Annual Base Payroll by Department",
                     "x": "department",
-                    "y": "annual_base_payroll",
-                    "series": None,
+                    "measures": ["annual_base_payroll"],
+                    "orientation": "horizontal",
+                    "sort": "descending",
+                    "value_format": "currency",
                 },
             }
 
@@ -191,8 +193,10 @@ class FakeLLMGateway(LLMGateway):
                 "chart_type": "bar",
                 "title": "Total Salary by Department",
                 "x": "department",
-                "y": "total_salary",
-                "series": None,
+                "measures": ["total_salary"],
+                "orientation": "horizontal",
+                "sort": "descending",
+                "value_format": "currency",
             },
         }
 

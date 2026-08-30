@@ -23,18 +23,41 @@ export interface AnalyticsRequest {
 }
 
 /**
- * `ChartSpec`. The Pydantic field is `chart_type` but serialises under the
- * alias `type`, which is what actually appears on the wire.
- * `x`, `y` and `series` are column names present in `rows`.
+ * `ChartSpec` — the AI-selected, backend-validated visualization contract.
+ *
+ * The Pydantic field is `chart_type` but serialises under the alias `type`,
+ * which is what appears on the wire. Every field here is data, never code: the
+ * backend contract has no field capable of carrying an executable payload, and
+ * `ChartValidator` has already confirmed that every column named below exists in
+ * `rows` and holds the right kind of value. The renderer can therefore treat
+ * this spec as trustworthy without re-deriving anything.
+ *
+ * Multi-series arrives one of two ways, never both at once: long format
+ * (`series` names a grouping column, one entry in `measures`) or wide format
+ * (several `measures`, `series` null).
  */
-export type ChartType = "bar" | "line" | "pie" | "donut";
+export type ChartType = "bar" | "line" | "area" | "pie" | "donut" | "scatter";
 
 export interface ChartSpec {
   type: ChartType;
   title: string;
+  /** Category, temporal, or (for scatter) numeric column for the x axis. */
   x: string;
-  y: string;
+  /** One or more numeric result columns to plot. Always at least one. */
+  measures: string[];
+  /** Long-format grouping column, or null. */
   series: string | null;
+  /** Honoured for bar charts; normalised to "vertical" for other types. */
+  orientation: "vertical" | "horizontal";
+  /** How multiple series combine. Only meaningful for bar and area. */
+  mode: "grouped" | "stacked";
+  x_label: string | null;
+  y_label: string | null;
+  value_format: "number" | "currency" | "percent";
+  /** Display-only reordering by the first measure. Values are never altered. */
+  sort: "none" | "ascending" | "descending";
+  /** Display-only cap on rendered categories. */
+  limit: number | null;
 }
 
 export interface Freshness {
@@ -123,7 +146,7 @@ export interface ExecutionMetadata {
 
 /** `AnalyticsResponse`, schema version 1.0. */
 export interface AnalyticsResponse {
-  schema_version: "1.0";
+  schema_version: "1.1";
   request_id: string;
   thread_id: string;
   status: AnalyticsStatus;

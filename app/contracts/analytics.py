@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.authorization.gateway import AuthorizedScopeSummary
 
@@ -29,12 +29,75 @@ class GroundedClaim(StrictContract):
     evidence: list[ClaimEvidence] = Field(min_length=1)
 
 
+ChartType = Literal["bar", "line", "area", "pie", "donut", "scatter"]
+
+
 class ChartSpec(StrictContract):
-    chart_type: Literal["bar", "line", "pie", "donut"] = Field(alias="type")
+    """A declarative, AI-selected visualization specification.
+
+    This is deliberately a *data* contract, never a code contract. Every field is
+    an enum, a bounded string, or a column name; there is no field in which the
+    model could return JavaScript, a Vega expression, or any other executable
+    payload, and `extra="forbid"` rejects an attempt to invent one.
+
+    Two rules divide the safety work:
+
+    - Structural rules that are true regardless of the data live here, so an
+      incoherent spec never leaves the model boundary at all.
+    - Rules that depend on the actual returned rows (does this column exist, is
+      it numeric, are there too many slices) live in `ChartValidator`, which is
+      the authority — a column name is never trusted merely because the model
+      emitted it.
+
+    Multi-series is expressible two ways, and exactly one may be used at a time:
+    long format (`series` names a grouping column, one measure) or wide format
+    (several `measures`, no `series`).
+    """
+
+    chart_type: ChartType = Field(alias="type")
     title: str = Field(min_length=1, max_length=200)
+    #: Category, temporal, or (for scatter) numeric column driving the x axis.
     x: str = Field(min_length=1)
-    y: str = Field(min_length=1)
+    #: One or more numeric result columns to plot. Wide-format multi-series.
+    measures: list[str] = Field(min_length=1, max_length=6)
+    #: Long-format grouping column. Mutually exclusive with multiple measures.
     series: str | None = None
+    #: Honoured for bar charts; ignored elsewhere and normalised by the validator.
+    orientation: Literal["vertical", "horizontal"] = "vertical"
+    #: How multiple series combine. Only meaningful for bar and area.
+    mode: Literal["grouped", "stacked"] = "grouped"
+    x_label: str | None = Field(default=None, max_length=80)
+    y_label: str | None = Field(default=None, max_length=80)
+    value_format: Literal["number", "currency", "percent"] = "number"
+    #: Display-only reordering by the first measure. Never changes any value.
+    sort: Literal["none", "ascending", "descending"] = "none"
+    #: Display-only cap on rendered categories. Truncation is disclosed in the UI.
+    limit: int | None = Field(default=None, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_structure(self) -> "ChartSpec":
+        if len(set(self.measures)) != len(self.measures):
+            raise ValueError("Chart measures must be unique.")
+        if self.x in self.measures:
+            raise ValueError("The x field cannot also be a measure.")
+        if self.series is not None:
+            if self.series == self.x:
+                raise ValueError("The series field cannot be the x field.")
+            if self.series in self.measures:
+                raise ValueError("The series field cannot also be a measure.")
+            if len(self.measures) != 1:
+                raise ValueError(
+                    "Use either one grouping series or several measures, not both."
+                )
+        if self.chart_type in {"pie", "donut"} and (
+            len(self.measures) != 1 or self.series is not None
+        ):
+            raise ValueError(
+                "Part-to-whole charts need exactly one measure and no series."
+            )
+        if self.chart_type == "scatter" and len(self.measures) != 1:
+            raise ValueError("A scatter chart plots exactly one measure against x.")
+        return self
 
 
 class Freshness(StrictContract):
@@ -235,7 +298,9 @@ class AnalyticalResult(StrictContract):
 
 
 class AnalyticsResponse(StrictContract):
-    schema_version: Literal["1.0"] = "1.0"
+    # 1.1 widened `chart` from the original four fixed types to the AI-selected
+    # visualization contract above. See ADR 0012.
+    schema_version: Literal["1.1"] = "1.1"
     request_id: str
     thread_id: str
     status: Literal["completed", "clarification_required", "blocked", "empty"]

@@ -92,8 +92,22 @@ Every HTTP response includes `X-Request-ID`. OpenAPI documents success and typed
 Governed metric and SQL results are normalized to `AnalyticalResult` before answer generation. The answer model sees
 only the actual returned rows. Every non-empty response must include structured claims whose row,
 field, and value match the result. Unsupported numbers, claims against absent fields, and claims on
-empty results fail with a typed grounding error. Chart fields must exist in returned rows; arbitrary
-chart code is never accepted.
+empty results fail with a typed grounding error.
+
+Visualizations are AI-selected and schema-validated (ADR 0012). The `analytics-general`
+model chooses the chart type and channels as part of the same grounded answer call, using
+the question, the returned rows, the result column types, and the row count. It returns
+only a typed declarative specification — bar, line, area, pie, donut, or scatter, with
+orientation, stacking, labels, value format, sort, and limit. There is no field in the
+contract capable of carrying JavaScript, Vega, HTML, or any other executable payload, and
+unknown fields are rejected.
+
+`ChartValidator` is the authority over that choice: every referenced column must exist in
+the returned rows, measures must be numeric, scatter additionally requires a numeric x,
+and part-to-whole charts reject negative values and high-cardinality results. A column
+name is never trusted because the model emitted it. An incompatible chart is dropped to
+`chart = null` with a sanitized warning rather than failing the analysis, so the grounded
+answer and the table always survive a bad visualization.
 
 Public provenance contains source, source tables, result fields/metadata, execution timestamp, and
 freshness. Sensitive subject IDs, policy decisions, physical model routing, SQL, detailed governance
