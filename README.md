@@ -251,9 +251,11 @@ gcloud auth application-default login
 ```
 
 The script starts analytics PostgreSQL, dedicated checkpoint PostgreSQL, OPA, and Wren before
-FastAPI. Both model aliases resolve to a self-hosted `Qwen/Qwen3.6-27B` Vertex AI endpoint in
-this project (ADR 0013); that endpoint is a provisioned GPU and bills continuously until it is
-undeployed. A future Ollama deployment only
+FastAPI. Qwen 3.6 27B is the default request profile and resolves both logical aliases to the
+self-hosted Vertex AI endpoint in this project (ADR 0013). Gemini 2.5 Flash is an approved
+per-request alternative through `vertex_ai/gemini-2.5-flash` and ADC. Wren metric planning stays
+independent of this choice. The Qwen endpoint is a provisioned GPU, costs approximately $4.50 per
+hour while deployed, and bills continuously until it is undeployed. A future Ollama deployment only
 changes the `LLM_MODEL_*` aliases and `OLLAMA_API_BASE`; no graph code changes. See
 [`docs/backend-v1.md`](docs/backend-v1.md) for the complete lifecycle and security boundaries.
 
@@ -285,6 +287,13 @@ Set `LLM_PROVIDER=litellm`, configure `LLM_MODEL_ANALYTICS_GENERAL` and
 matching environment credential. Gemini uses `GEMINI_API_KEY`; OpenAI support remains available
 through `OPENAI_API_KEY`. Keys are read as Pydantic secrets and are not included in reports. Cloud
 use must be limited to synthetic or explicitly approved non-sensitive data.
+
+The analytics API accepts only the server-approved `qwen` and `gemini` profile names. Qwen is the
+default. The server resolves those names to both logical aliases for that request; physical model
+IDs, projects, endpoints, and regions never come from the browser. The selected profile is used for
+SQL and grounded answer generation, and provider failure is returned as an error rather than
+falling back to the other profile. The current Gemini profile uses Vertex ADC, not
+`GEMINI_API_KEY`.
 
 The Gemini smoke test uses LiteLLM identifier `gemini/gemini-2.5-flash` and requires an additional
 explicit opt-in:
@@ -384,10 +393,11 @@ calls Ollama.
 ```powershell
 curl -X POST http://127.0.0.1:8000/analytics/query `
   -H "Content-Type: application/json" `
-  -d "{\"question\":\"Show each department, its number of employees, total salary, average salary, and highest paid employee, ordered by total payroll.\"}"
+  -d "{\"question\":\"Show each department, its number of employees, total salary, average salary, and highest paid employee, ordered by total payroll.\",\"model_profile\":\"qwen\"}"
 ```
 
-The response contract is version `1.0` and returns `request_id`, `thread_id`, `answer`, `columns`,
+The response contract is version `1.1` and returns `request_id`, `thread_id`, the safe model
+profile/display name, `answer`, `columns`,
 `rows`, a safe chart spec, public provenance, clarification fields, warnings, and execution
 metadata. Send the returned `thread_id` with a follow-up question to continue the analytical
 thread. Internal provenance retains query IDs, filters, time ranges, model aliases, and SQL, while

@@ -232,17 +232,19 @@ def test_self_hosted_qwen_endpoint_still_requires_cloud_data_approval() -> None:
     Result content still leaves the process, so the cloud-data guard must treat a
     project-owned Vertex endpoint exactly like any other cloud model.
     """
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/1234567890123456789",
+        LLM_MODEL_SQL_REASONER="vertex_ai/openai/1234567890123456789",
+        VERTEXAI_PROJECT="test-project",
+        VERTEXAI_LOCATION="us-central1",
+        DATABASE_PROVIDER="postgres",
+        DATABASE_URL="postgresql://u:p@localhost:5432/db",
+        ALLOW_CLOUD_DATABASE_DATA=False,
+    )
+
     with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA"):
-        Settings(
-            LLM_PROVIDER="litellm",
-            LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/1234567890123456789",
-            LLM_MODEL_SQL_REASONER="vertex_ai/openai/1234567890123456789",
-            VERTEXAI_PROJECT="test-project",
-            VERTEXAI_LOCATION="us-central1",
-            DATABASE_PROVIDER="postgres",
-            DATABASE_URL="postgresql://u:p@localhost:5432/db",
-            ALLOW_CLOUD_DATABASE_DATA=False,
-        )
+        settings.resolve_model_profile("qwen")
 
 
 def test_cloud_configuration_requires_vertex_project() -> None:

@@ -1,9 +1,12 @@
 import os
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+from app.llm.profiles import MODEL_PROFILE_DISPLAY_NAMES, ModelProfile, ResolvedModelProfile
 
 
 class Settings(BaseSettings):
@@ -239,6 +242,26 @@ class Settings(BaseSettings):
         alias="LLM_MODEL_ANALYTICS_GENERAL",
     )
     llm_model_sql_reasoner: str = Field(default="fake/sql-reasoner", alias="LLM_MODEL_SQL_REASONER")
+    llm_model_qwen_analytics_general: str | None = Field(
+        default=None,
+        alias="LLM_MODEL_QWEN_ANALYTICS_GENERAL",
+    )
+    llm_model_qwen_sql_reasoner: str | None = Field(
+        default=None,
+        alias="LLM_MODEL_QWEN_SQL_REASONER",
+    )
+    llm_model_gemini_analytics_general: str = Field(
+        default="vertex_ai/gemini-2.5-flash",
+        alias="LLM_MODEL_GEMINI_ANALYTICS_GENERAL",
+    )
+    llm_model_gemini_sql_reasoner: str = Field(
+        default="vertex_ai/gemini-2.5-flash",
+        alias="LLM_MODEL_GEMINI_SQL_REASONER",
+    )
+    llm_gemini_vertex_ai_location: str = Field(
+        default="global",
+        alias="LLM_GEMINI_VERTEXAI_LOCATION",
+    )
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300, alias="LLM_TIMEOUT_SECONDS")
     llm_max_retries: int = Field(default=2, ge=0, le=10, alias="LLM_MAX_RETRIES")
     llm_max_output_tokens: int | None = Field(
@@ -396,24 +419,6 @@ class Settings(BaseSettings):
                     "AUTHENTICATION_PROVIDER=local is forbidden in staging and production; "
                     "configure AUTHENTICATION_PROVIDER=oidc."
                 )
-        cloud_providers = {self.model_provider(model) for model in self.model_aliases.values()} & {
-            "cerebras",
-            "gemini",
-            "groq",
-            "openai",
-            "vertex_ai",
-            "zai",
-        }
-        if (
-            self.database_provider in {"postgres", "toolbox"}
-            and self.llm_provider == "litellm"
-            and cloud_providers
-            and not self.allow_cloud_database_data
-        ):
-            raise ValueError(
-                "Set ALLOW_CLOUD_DATABASE_DATA=1 only for approved non-sensitive "
-                "database data sent to a cloud model."
-            )
         return self
 
     @property
@@ -445,32 +450,89 @@ class Settings(BaseSettings):
 
     @property
     def api_keys_by_alias(self) -> dict[str, str]:
-        keys: dict[str, str] = {}
-        for alias, model in self.model_aliases.items():
-            secret = self._api_key_for_model(model)
-            if secret is not None and secret.get_secret_value():
-                keys[alias] = secret.get_secret_value()
-        return keys
+        return self._api_keys_for_aliases(self.model_aliases)
 
     @property
     def api_bases_by_alias(self) -> dict[str, str]:
-        return {
-            alias: self.ollama_api_base.rstrip("/")
-            for alias, model in self.model_aliases.items()
-            if self.model_provider(model) == "ollama"
-        }
+        return self._api_bases_for_aliases(self.model_aliases)
 
     @property
     def model_options_by_alias(self) -> dict[str, dict[str, Any]]:
+        return self._model_options_for_aliases(
+            self.model_aliases,
+            vertex_location=self.vertex_ai_location,
+        )
+
+    def resolve_model_profile(self, profile: ModelProfile) -> ResolvedModelProfile:
+        if profile == "qwen":
+            aliases = {
+                "analytics-general": (
+                    self.llm_model_qwen_analytics_general
+                    or self.llm_model_analytics_general
+                ),
+                "sql-reasoner": (
+                    self.llm_model_qwen_sql_reasoner or self.llm_model_sql_reasoner
+                ),
+            }
+            vertex_location = self.vertex_ai_location
+        else:
+            aliases = {
+                "analytics-general": self.llm_model_gemini_analytics_general,
+                "sql-reasoner": self.llm_model_gemini_sql_reasoner,
+            }
+            vertex_location = self.llm_gemini_vertex_ai_location
+
+        self.validate_cloud_data_for_models(aliases.values())
+        return ResolvedModelProfile(
+            profile=profile,
+            display_name=MODEL_PROFILE_DISPLAY_NAMES[profile],
+            model_aliases=aliases,
+            model_options_by_alias=self._model_options_for_aliases(
+                aliases,
+                vertex_location=vertex_location,
+            ),
+            api_keys_by_alias=self._api_keys_for_aliases(aliases),
+            api_bases_by_alias=self._api_bases_for_aliases(aliases),
+            structured_output_modes_by_alias=self._structured_output_modes_for_aliases(
+                aliases
+            ),
+        )
+
+    def validate_cloud_data_for_models(self, models: Iterable[str]) -> None:
+        cloud_providers = {self.model_provider(model) for model in models} & {
+            "cerebras",
+            "gemini",
+            "groq",
+            "openai",
+            "vertex_ai",
+            "zai",
+        }
+        if (
+            self.database_provider in {"postgres", "toolbox"}
+            and self.llm_provider == "litellm"
+            and cloud_providers
+            and not self.allow_cloud_database_data
+        ):
+            raise ValueError(
+                "Set ALLOW_CLOUD_DATABASE_DATA=1 only for approved non-sensitive "
+                "database data sent to a cloud model."
+            )
+
+    def _model_options_for_aliases(
+        self,
+        aliases: dict[str, str],
+        *,
+        vertex_location: str,
+    ) -> dict[str, dict[str, Any]]:
         options: dict[str, dict[str, Any]] = {}
-        for alias, model in self.model_aliases.items():
+        for alias, model in aliases.items():
             provider = self.model_provider(model)
             if provider == "ollama":
                 options[alias] = {"num_ctx": self.ollama_num_ctx}
             elif provider == "vertex_ai" and self.vertex_ai_project:
                 options[alias] = {
                     "vertex_project": self.vertex_ai_project,
-                    "vertex_location": self.vertex_ai_location,
+                    "vertex_location": vertex_location,
                 }
                 if self.is_vertex_openai_endpoint(model):
                     # Qwen3.6 is a reasoning model: by default it emits a thinking
@@ -481,6 +543,31 @@ class Settings(BaseSettings):
                         "chat_template_kwargs": {"enable_thinking": False}
                     }
         return options
+
+    def _api_keys_for_aliases(self, aliases: dict[str, str]) -> dict[str, str]:
+        keys: dict[str, str] = {}
+        for alias, model in aliases.items():
+            secret = self._api_key_for_model(model)
+            if secret is not None and secret.get_secret_value():
+                keys[alias] = secret.get_secret_value()
+        return keys
+
+    def _api_bases_for_aliases(self, aliases: dict[str, str]) -> dict[str, str]:
+        return {
+            alias: self.ollama_api_base.rstrip("/")
+            for alias, model in aliases.items()
+            if self.model_provider(model) == "ollama"
+        }
+
+    def _structured_output_modes_for_aliases(
+        self,
+        aliases: dict[str, str],
+    ) -> dict[str, Literal["response_format", "tool_call"]]:
+        return {
+            alias: "tool_call"
+            for alias, model in aliases.items()
+            if self.model_provider(model) in {"groq", "zai"}
+        }
 
     @staticmethod
     def is_vertex_openai_endpoint(model: str) -> bool:
@@ -493,12 +580,10 @@ class Settings(BaseSettings):
         return model.lower().startswith("vertex_ai/openai/")
 
     @property
-    def structured_output_modes_by_alias(self) -> dict[str, Literal["tool_call"]]:
-        return {
-            alias: "tool_call"
-            for alias, model in self.model_aliases.items()
-            if self.model_provider(model) in {"groq", "zai"}
-        }
+    def structured_output_modes_by_alias(
+        self,
+    ) -> dict[str, Literal["response_format", "tool_call"]]:
+        return self._structured_output_modes_for_aliases(self.model_aliases)
 
     def model_provider(self, model: str) -> str:
         provider = model.partition("/")[0].lower()

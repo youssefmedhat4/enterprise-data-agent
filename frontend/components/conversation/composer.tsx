@@ -14,6 +14,8 @@ import {
 
 import { cn } from "@/lib/utils";
 import { DUR, EASE_OUT } from "@/lib/motion";
+import { ModelSelector } from "@/components/conversation/model-selector";
+import type { ModelProfile } from "@/lib/models/profiles";
 
 /**
  * The query composer.
@@ -41,6 +43,8 @@ interface ComposerProps {
   handleRef?: RefObject<ComposerHandle | null>;
   /** `focal` on the console, `docked` beneath an active analysis. */
   tone?: "focal" | "docked";
+  modelProfile: ModelProfile;
+  onModelProfileChange: (profile: ModelProfile) => void;
 }
 
 export function Composer({
@@ -51,6 +55,8 @@ export function Composer({
   placeholder = "Ask a business question…",
   handleRef,
   tone = "docked",
+  modelProfile,
+  onModelProfileChange,
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
@@ -179,23 +185,28 @@ export function Composer({
         )}
       </form>
 
-      <p
+      <div
         className={cn(
-          "mt-2 text-[11px] text-muted-foreground",
-          focal ? "text-center" : "px-1",
+          "mt-2 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground",
+          focal ? "justify-between px-1" : "px-1",
         )}
       >
-        <kbd className="font-sans font-medium text-foreground">Enter</kbd> to send
-        · <kbd className="font-sans font-medium text-foreground">Shift+Enter</kbd>{" "}
-        for a new line
-        {isBusy ? (
-          <>
-            {" "}
-            · <kbd className="font-sans font-medium text-foreground">Esc</kbd> to
-            stop
-          </>
-        ) : null}
-      </p>
+        <ModelSelector
+          value={modelProfile}
+          onValueChange={onModelProfileChange}
+          disabled={isBusy}
+          compact={!focal}
+        />
+        <p className="hidden min-w-0 text-end sm:block">
+          <kbd className="font-sans font-medium text-foreground">Enter</kbd> to send
+          {isBusy ? (
+            <>
+              {" "}
+              · <kbd className="font-sans font-medium text-foreground">Esc</kbd> to stop
+            </>
+          ) : null}
+        </p>
+      </div>
     </div>
   );
 }

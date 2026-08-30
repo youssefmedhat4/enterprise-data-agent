@@ -9,6 +9,7 @@ import { ErrorEntry } from "@/components/states/error-entry";
 import type { Exchange } from "@/hooks/use-conversation";
 import { entryEnter } from "@/lib/motion";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
+import { modelDisplayName } from "@/lib/models/profiles";
 
 /**
  * The analysis ledger.
@@ -75,6 +76,10 @@ export function Ledger({
           >
             {exchange.question}
           </h2>
+
+          <p className="-mt-4 mb-6 text-[11px] text-muted-foreground">
+            {exchange.response?.model_display_name ?? modelDisplayName(exchange.modelProfile)}
+          </p>
 
           {exchange.state === "pending" ? <PendingEntry /> : null}
 

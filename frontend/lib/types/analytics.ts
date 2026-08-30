@@ -15,11 +15,14 @@ export type Scalar = string | number | boolean | null;
 /** A result row is keyed by column name. Values are JSON scalars. */
 export type ResultRow = Record<string, Scalar>;
 
+export type ModelProfile = "qwen" | "gemini";
+
 /** `AnalyticsRequest` — the body is `extra="forbid"`; unknown keys are a 422. */
 export interface AnalyticsRequest {
   question: string;
   thread_id?: string | null;
   include_debug?: boolean;
+  model_profile?: ModelProfile;
 }
 
 /**
@@ -164,6 +167,8 @@ export interface AnalyticsResponse {
   schema_version: "1.1";
   request_id: string;
   thread_id: string;
+  model_profile: ModelProfile;
+  model_display_name: string;
   status: AnalyticsStatus;
   answer: string;
   columns: string[];

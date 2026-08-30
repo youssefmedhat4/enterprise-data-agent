@@ -128,16 +128,53 @@ def test_production_accepts_oidc_opa_persistent_checkpoint_and_real_backends() -
     assert settings.conversation_checkpoint_provider == "postgres"
 
 
-def test_cloud_model_with_postgres_requires_explicit_data_approval() -> None:
+def test_cloud_data_guard_checks_only_the_selected_profile() -> None:
+    settings = Settings(
+        DATABASE_PROVIDER="postgres",
+        ALLOW_CLOUD_DATABASE_DATA=False,
+        LLM_PROVIDER="litellm",
+        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.6:27b",
+        LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.6:27b",
+        VERTEXAI_PROJECT="test-project",
+    )
+
+    assert settings.resolve_model_profile("qwen").physical_models == [
+        "ollama_chat/qwen3.6:27b"
+    ]
     with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA"):
-        Settings(
-            DATABASE_PROVIDER="postgres",
-            ALLOW_CLOUD_DATABASE_DATA=False,
-            LLM_PROVIDER="litellm",
-            LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/gemini-2.5-flash",
-            LLM_MODEL_SQL_REASONER="vertex_ai/gemini-2.5-flash",
-            VERTEXAI_PROJECT="test-project",
-        )
+        settings.resolve_model_profile("gemini")
+
+
+def test_model_profiles_are_request_scoped_and_keep_provider_options_separate() -> None:
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/qwen-endpoint-for-test",
+        LLM_MODEL_SQL_REASONER="vertex_ai/openai/qwen-endpoint-for-test",
+        VERTEXAI_PROJECT="test-project",
+        VERTEXAI_LOCATION="us-central1",
+        LLM_GEMINI_VERTEXAI_LOCATION="global",
+        ALLOW_CLOUD_DATABASE_DATA=True,
+    )
+
+    qwen = settings.resolve_model_profile("qwen")
+    gemini = settings.resolve_model_profile("gemini")
+
+    assert set(qwen.model_aliases.values()) == {
+        "vertex_ai/openai/qwen-endpoint-for-test"
+    }
+    assert set(gemini.model_aliases.values()) == {"vertex_ai/gemini-2.5-flash"}
+    assert qwen.model_options_by_alias["sql-reasoner"] == {
+        "vertex_project": "test-project",
+        "vertex_location": "us-central1",
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+    assert gemini.model_options_by_alias["sql-reasoner"] == {
+        "vertex_project": "test-project",
+        "vertex_location": "global",
+    }
+    assert "extra_body" not in gemini.model_options_by_alias["analytics-general"]
+    assert qwen.structured_output_modes_by_alias == {}
+    assert gemini.structured_output_modes_by_alias == {}
 
 
 def test_cloud_keys_are_excluded_from_serialized_settings() -> None:

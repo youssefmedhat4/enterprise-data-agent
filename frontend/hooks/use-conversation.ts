@@ -6,6 +6,7 @@ import { postAnalyticsQuery } from "@/lib/api/analytics";
 import { ApiError } from "@/lib/api/client";
 import { loadTranscript, saveTranscript } from "@/lib/threads/transcript";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
+import type { ModelProfile } from "@/lib/models/profiles";
 
 export interface ExchangeFailure {
   code: string;
@@ -22,6 +23,7 @@ export interface Exchange {
   id: string;
   question: string;
   askedAt: number;
+  modelProfile: ModelProfile;
   state: "pending" | "answered" | "failed" | "cancelled";
   response?: AnalyticsResponse;
   error?: ExchangeFailure;
@@ -54,7 +56,7 @@ export interface UseConversationResult {
   exchanges: Exchange[];
   threadId: string | null;
   isBusy: boolean;
-  ask: (question: string) => Promise<void>;
+  ask: (question: string, modelProfile: ModelProfile) => Promise<void>;
   retry: (exchangeId: string) => Promise<void>;
   cancel: () => void;
   startNewAnalysis: () => void;
@@ -78,7 +80,7 @@ export function useConversation(options: {
   const isBusy = pendingId !== null;
 
   const run = useCallback(
-    async (exchangeId: string, question: string) => {
+    async (exchangeId: string, question: string, modelProfile: ModelProfile) => {
       const controller = new AbortController();
       abortRef.current = controller;
       setPendingId(exchangeId);
@@ -89,6 +91,7 @@ export function useConversation(options: {
             question,
             thread_id: threadRef.current,
             include_debug: true,
+            model_profile: modelProfile,
           },
           { signal: controller.signal },
         );
@@ -137,33 +140,38 @@ export function useConversation(options: {
   );
 
   const ask = useCallback(
-    async (question: string) => {
+    async (question: string, modelProfile: ModelProfile) => {
       const trimmed = question.trim();
       if (trimmed === "") return;
       const id = newId();
       setExchanges((current) => [
         ...current,
-        { id, question: trimmed, askedAt: Date.now(), state: "pending" },
+        {
+          id,
+          question: trimmed,
+          askedAt: Date.now(),
+          modelProfile,
+          state: "pending",
+        },
       ]);
-      await run(id, trimmed);
+      await run(id, trimmed, modelProfile);
     },
     [run],
   );
 
   const retry = useCallback(
     async (exchangeId: string) => {
-      let question = "";
+      const exchange = exchanges.find((candidate) => candidate.id === exchangeId);
+      if (exchange === undefined) return;
       setExchanges((current) =>
         current.map((exchange) => {
           if (exchange.id !== exchangeId) return exchange;
-          question = exchange.question;
           return { ...exchange, state: "pending", error: undefined };
         }),
       );
-      if (question === "") return;
-      await run(exchangeId, question);
+      await run(exchangeId, exchange.question, exchange.modelProfile);
     },
-    [run],
+    [exchanges, run],
   );
 
   const cancel = useCallback(() => {

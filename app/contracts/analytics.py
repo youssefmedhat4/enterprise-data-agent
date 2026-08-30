@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.authorization.gateway import AuthorizedScopeSummary
+from app.llm.profiles import ModelProfile
 
 type Scalar = str | int | float | bool | None
 
@@ -16,6 +17,7 @@ class AnalyticsRequest(StrictContract):
     question: str = Field(min_length=1)
     thread_id: str | None = Field(default=None, min_length=1)
     include_debug: bool = False
+    model_profile: ModelProfile = "qwen"
 
 
 class ClaimEvidence(StrictContract):
@@ -191,6 +193,8 @@ class InternalProvenance(StrictContract):
     llm_prompt_tokens: int = Field(default=0, ge=0)
     llm_completion_tokens: int = Field(default=0, ge=0)
     llm_total_tokens: int = Field(default=0, ge=0)
+    model_profile: ModelProfile | None = None
+    model_display_name: str | None = None
     authenticated_subject_id: str | None = None
     authentication_provider: str | None = None
     authorization_provider: str | None = None
@@ -311,6 +315,8 @@ class AnalyticsResponse(StrictContract):
     schema_version: Literal["1.1"] = "1.1"
     request_id: str
     thread_id: str
+    model_profile: ModelProfile
+    model_display_name: str
     status: Literal["completed", "clarification_required", "blocked", "empty"]
     answer: str
     columns: list[str]

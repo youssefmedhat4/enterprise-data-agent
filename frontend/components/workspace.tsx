@@ -24,6 +24,12 @@ import {
 } from "@/lib/threads/storage";
 import { clearTranscript } from "@/lib/threads/transcript";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
+import {
+  DEFAULT_MODEL_PROFILE,
+  type ModelProfile,
+} from "@/lib/models/profiles";
+
+const MODEL_PROFILE_STORAGE_KEY = "eda.model-profile:v1";
 
 /**
  * The workspace shell.
@@ -43,12 +49,24 @@ export function Workspace() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detailsFor, setDetailsFor] = useState<AnalyticsResponse | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [modelProfile, setModelProfile] = useState<ModelProfile>(
+    DEFAULT_MODEL_PROFILE,
+  );
 
   const composerRef = useRef<ComposerHandle>(null);
   const health = useHealth();
 
   // localStorage is unavailable during SSR; hydrate after mount.
   useEffect(() => setThreads(loadThreads()), []);
+  useEffect(() => {
+    const stored = sessionStorage.getItem(MODEL_PROFILE_STORAGE_KEY);
+    if (stored === "qwen" || stored === "gemini") setModelProfile(stored);
+  }, []);
+
+  const handleModelProfileChange = useCallback((profile: ModelProfile) => {
+    setModelProfile(profile);
+    sessionStorage.setItem(MODEL_PROFILE_STORAGE_KEY, profile);
+  }, []);
 
   const onThreadEstablished = useCallback(
     (threadId: string, question: string) => {
@@ -110,7 +128,10 @@ export function Workspace() {
     [threadId, startNewAnalysis],
   );
 
-  const handleAsk = useCallback((question: string) => void ask(question), [ask]);
+  const handleAsk = useCallback(
+    (question: string) => void ask(question, modelProfile),
+    [ask, modelProfile],
+  );
 
   const isResumed = threadId !== null && exchanges.length === 0;
   const isConsole = exchanges.length === 0 && !isResumed;
@@ -194,6 +215,8 @@ export function Workspace() {
                     isBusy={isBusy}
                     disabled={offline}
                     tone="focal"
+                    modelProfile={modelProfile}
+                    onModelProfileChange={handleModelProfileChange}
                   />
                 }
               />
@@ -256,6 +279,8 @@ export function Workspace() {
                       disabled={offline}
                       tone="docked"
                       placeholder="Ask a follow-up…"
+                      modelProfile={modelProfile}
+                      onModelProfileChange={handleModelProfileChange}
                     />
                   </div>
                 </div>

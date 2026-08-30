@@ -1,4 +1,5 @@
 import type { Exchange } from "@/hooks/use-conversation";
+import { DEFAULT_MODEL_PROFILE } from "@/lib/models/profiles";
 
 /**
  * Per-thread transcript persistence.
@@ -72,7 +73,10 @@ export function loadTranscript(threadId: string): Exchange[] {
         item !== null &&
         typeof (item as Exchange).id === "string" &&
         typeof (item as Exchange).question === "string",
-    );
+    ).map((exchange) => ({
+      ...exchange,
+      modelProfile: exchange.modelProfile ?? DEFAULT_MODEL_PROFILE,
+    }));
   } catch {
     return [];
   }

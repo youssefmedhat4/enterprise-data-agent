@@ -55,8 +55,11 @@ def get_database_gateway(settings: Annotated[Settings, Depends(get_settings)]) -
     return build_database_gateway(settings)
 
 
-def get_llm_gateway(settings: Annotated[Settings, Depends(get_settings)]) -> LLMGateway:
-    return build_llm_gateway(settings)
+def get_llm_gateway(
+    request: AnalyticsRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LLMGateway:
+    return build_llm_gateway(settings, model_profile=request.model_profile)
 
 
 def get_trace_service(
@@ -270,6 +273,7 @@ async def query_analytics(
 ) -> AnalyticsResponse:
     request_id = getattr(http_request.state, "request_id", str(uuid4()))
     thread_id = request.thread_id or str(uuid4())
+    selected_model_profile = settings.resolve_model_profile(request.model_profile)
     graph = build_graph(
         db_gateway=db_gateway,
         llm_gateway=llm_gateway,
@@ -289,6 +293,7 @@ async def query_analytics(
             "request_id": request_id,
             "thread_id": thread_id,
             "llm_provider": settings.llm_provider,
+            "model_profile": selected_model_profile.profile,
             "database_provider": settings.database_provider,
         },
     )
@@ -304,7 +309,10 @@ async def query_analytics(
             config={"configurable": {"thread_id": thread_id}},
         )
         request_span.set_attribute("route", result.get("execution_route"))
-        request_span.set_attribute("llm_models", ",".join(settings.model_aliases.values()))
+        request_span.set_attribute(
+            "llm_models",
+            ",".join(selected_model_profile.physical_models),
+        )
         if isinstance(llm_gateway, LLMGatewayWithUsage):
             usage_snapshot = llm_gateway.usage_snapshot()
             request_span.set_attribute("llm_call_count", usage_snapshot.call_count)
@@ -340,11 +348,13 @@ async def query_analytics(
     internal_provenance = internal_provenance.model_copy(
         update={
             "llm_provider": settings.llm_provider,
-            "llm_models": sorted(set(settings.model_aliases.values())),
+            "llm_models": selected_model_profile.physical_models,
             "llm_call_count": usage.call_count,
             "llm_prompt_tokens": usage.prompt_tokens,
             "llm_completion_tokens": usage.completion_tokens,
             "llm_total_tokens": usage.total_tokens,
+            "model_profile": selected_model_profile.profile,
+            "model_display_name": selected_model_profile.display_name,
         }
     )
     decision = result.get("authorization_decision")
@@ -359,6 +369,8 @@ async def query_analytics(
     return AnalyticsResponse(
         request_id=request_id,
         thread_id=thread_id,
+        model_profile=selected_model_profile.profile,
+        model_display_name=selected_model_profile.display_name,
         status=execution.status,
         answer=result["final_answer"],
         columns=columns,

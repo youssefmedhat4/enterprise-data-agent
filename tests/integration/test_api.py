@@ -47,6 +47,8 @@ async def test_analytics_api_returns_rows_answer_chart_and_provenance() -> None:
     assert payload["schema_version"] == "1.1"
     assert payload["status"] == "completed"
     assert payload["thread_id"]
+    assert payload["model_profile"] == "qwen"
+    assert payload["model_display_name"] == "Qwen 3.6 27B"
     assert payload["columns"][0] == "department"
     assert payload["chart"]["type"] == "bar"
     assert payload["chart"]["measures"] == ["total_salary"]
@@ -58,6 +60,41 @@ async def test_analytics_api_returns_rows_answer_chart_and_provenance() -> None:
     assert payload["execution"]["status"] == "completed"
     assert payload["execution"]["live"] is False
     assert payload["clarification_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_request_can_select_gemini_and_response_records_only_that_profile() -> None:
+    app.dependency_overrides[get_database_gateway] = lambda: FakeDatabaseGateway()
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/analytics/query",
+                json={"question": QUESTION, "model_profile": "gemini"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["model_profile"] == "gemini"
+    assert response.json()["model_display_name"] == "Gemini 2.5 Flash"
+
+
+@pytest.mark.asyncio
+async def test_request_rejects_unapproved_model_profile() -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/analytics/query",
+            json={"question": QUESTION, "model_profile": "arbitrary-model"},
+        )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -118,6 +155,7 @@ async def test_governed_metric_api_response_uses_normalized_contract() -> None:
                 json={
                     "question": "Total annual payroll by department",
                     "include_debug": True,
+                    "model_profile": "gemini",
                 },
             )
     finally:
@@ -131,6 +169,7 @@ async def test_governed_metric_api_response_uses_normalized_contract() -> None:
     assert payload["provenance"]["debug"]["metric_id"] == "annual_base_payroll"
     assert payload["provenance"]["debug"]["validated_sql"] is None
     assert database.executed_sql == []
+    assert payload["model_profile"] == "gemini"
 
 
 @pytest.mark.asyncio

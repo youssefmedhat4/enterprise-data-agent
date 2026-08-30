@@ -1,12 +1,13 @@
 import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 /**
  * Deliberately minimal: this project keeps no broad frontend test suite, only
- * focused coverage of pure logic where a silent regression would be costly —
- * chart value formatting and presentation compatibility.
+ * focused coverage where a silent regression would be costly.
  */
 export default defineConfig({
+  plugins: [react()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./", import.meta.url)),
@@ -14,6 +15,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts"],
+    include: ["**/*.test.{ts,tsx}"],
   },
 });

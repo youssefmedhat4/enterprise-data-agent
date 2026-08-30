@@ -164,6 +164,20 @@ future OpenBao/Vault/company secret manager. Secret values use `SecretStr`, are 
 settings serialization, and must not be placed in images or manifests. Sending database-derived
 content to cloud LLMs requires `ALLOW_CLOUD_DATABASE_DATA=1`.
 
+`POST /analytics/query` accepts a bounded `model_profile` of `qwen` (default) or `gemini`.
+The server resolves the selected profile to the existing `analytics-general` and `sql-reasoner`
+logical aliases for that request. It never accepts provider names, endpoint IDs, projects, regions,
+or physical model IDs from the client. Qwen uses the configured Vertex Model Garden endpoint and
+its response-format structured mode with thinking disabled; Gemini uses
+`vertex_ai/gemini-2.5-flash` through ADC and receives no Qwen-specific options. The selected
+physical aliases alone are retained internally, while the public response exposes only the safe
+profile and display name. There is no profile fallback. Wren metric translation is unaffected by
+the selection, though the selected `analytics-general` alias still grounds the final answer.
+
+The cloud-data guard is evaluated against the physical aliases selected for the request. This
+keeps both current cloud profiles fail-closed without allowing an unused cloud profile to block a
+future explicitly selected local profile.
+
 The deployment must inject `APP_ENV=staging` or `APP_ENV=production` in the process environment.
 For those values the settings loader omits `.env` entirely and reads injected environment/file
 secret sources only.
@@ -218,6 +232,9 @@ GOVERNANCE_PROVIDER=disabled
 LLM_PROVIDER=litellm
 LLM_MODEL_ANALYTICS_GENERAL=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
 LLM_MODEL_SQL_REASONER=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
+LLM_MODEL_GEMINI_ANALYTICS_GENERAL=vertex_ai/gemini-2.5-flash
+LLM_MODEL_GEMINI_SQL_REASONER=vertex_ai/gemini-2.5-flash
+LLM_GEMINI_VERTEXAI_LOCATION=global
 VERTEXAI_PROJECT=your-project-id
 VERTEXAI_LOCATION=us-central1
 ALLOW_CLOUD_DATABASE_DATA=1
@@ -229,10 +246,10 @@ Vertex AI (ADR 0013), served by Google's prebuilt vLLM container on one
 bearer token is stored anywhere. `ALLOW_CLOUD_DATABASE_DATA=1` still applies — self-hosting
 the weights does not exempt the endpoint, because result content still leaves the process.
 
-There is no model fallback. If the endpoint is undeployed or unreachable, requests fail
-with a typed LLM error; Gemini never silently answers in its place. Reverting to Gemini is
-an explicit change of these two aliases back to `vertex_ai/gemini-2.5-flash` with
-`VERTEXAI_LOCATION=global`. To move to a local machine instead, configure both aliases as
+There is no model fallback. If the selected endpoint is undeployed or unreachable, requests fail
+with a typed LLM error. The frontend can select Gemini for the next request without changing the
+thread; prior exchanges retain their original profile identity. To move to a local machine instead,
+configure the Qwen aliases as
 `ollama_chat/<installed-tag>` and set `OLLAMA_API_BASE`; LangGraph and application code do
 not change in either direction.
 
