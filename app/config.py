@@ -258,6 +258,24 @@ class Settings(BaseSettings):
         default="vertex_ai/gemini-2.5-flash",
         alias="LLM_MODEL_GEMINI_SQL_REASONER",
     )
+    embedding_provider: Literal["fake", "gemini"] = Field(
+        default="fake",
+        alias="EMBEDDING_PROVIDER",
+    )
+    embedding_model: str = Field(
+        default="gemini/gemini-embedding-2",
+        alias="EMBEDDING_MODEL",
+    )
+    # Gemini Embedding 2 is a Matryoshka model, so a prefix of the 3072-wide
+    # vector stays valid. 768 keeps the pgvector index small at a small recall
+    # cost; changing this requires re-embedding, which the stored dimension
+    # makes detectable rather than silent.
+    embedding_dimension: int = Field(
+        default=768,
+        ge=1,
+        le=3072,
+        alias="EMBEDDING_DIMENSION",
+    )
     llm_model_gemini_pro_analytics_general: str = Field(
         default="gemini/gemini-3.1-pro-preview",
         alias="LLM_MODEL_GEMINI_PRO_ANALYTICS_GENERAL",
