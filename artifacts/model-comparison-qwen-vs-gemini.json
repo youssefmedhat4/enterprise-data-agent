@@ -1,0 +1,49 @@
+{
+  "question": "For each department, show the active employee count, total annual base payroll, average employee salary, total project cost, total invoiced amount, and total project margin. Also calculate annual payroll per active employee and rank the departments from highest to lowest project margin.",
+  "comparison_policy": "Same API path, user, authorization, database, semantic context, prompts, validators, and row limits; one request per profile with no cross-profile retry.",
+  "reference": {
+    "row_count": 4,
+    "rows": [
+      {"department_name": "Engineering", "active_employee_count": 4, "total_annual_base_payroll": 710000, "average_employee_salary": 142000, "total_project_cost": 88700, "total_invoiced_amount": 205000, "total_project_margin": 116300, "annual_payroll_per_active_employee": 177500, "margin_rank": 1},
+      {"department_name": "Finance", "active_employee_count": 2, "total_annual_base_payroll": 255000, "average_employee_salary": 127500, "total_project_cost": 0, "total_invoiced_amount": 0, "total_project_margin": 0, "annual_payroll_per_active_employee": 127500, "margin_rank": 2},
+      {"department_name": "People Operations", "active_employee_count": 1, "total_annual_base_payroll": 225000, "average_employee_salary": 112500, "total_project_cost": 0, "total_invoiced_amount": 0, "total_project_margin": 0, "annual_payroll_per_active_employee": 225000, "margin_rank": 2},
+      {"department_name": "Sales", "active_employee_count": 3, "total_annual_base_payroll": 375000, "average_employee_salary": 125000, "total_project_cost": 0, "total_invoiced_amount": 0, "total_project_margin": 0, "annual_payroll_per_active_employee": 125000, "margin_rank": 2}
+    ]
+  },
+  "qwen": {
+    "profile": "qwen",
+    "display_name": "Qwen 3.6 27B",
+    "route": "adhoc_analytics",
+    "classification": "CORRECT",
+    "generated_sql": "SELECT d.name AS department_name, COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) AS active_employee_count, SUM(e.salary) AS total_annual_base_payroll, AVG(e.salary) AS average_employee_salary, COALESCE(pc_agg.total_project_cost, 0) AS total_project_cost, COALESCE(inv_agg.total_invoiced_amount, 0) AS total_invoiced_amount, COALESCE(inv_agg.total_invoiced_amount, 0) - COALESCE(pc_agg.total_project_cost, 0) AS total_project_margin, CASE WHEN COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) > 0 THEN SUM(e.salary) / COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) ELSE NULL END AS annual_payroll_per_active_employee, RANK() OVER (ORDER BY (COALESCE(inv_agg.total_invoiced_amount, 0) - COALESCE(pc_agg.total_project_cost, 0)) DESC) AS margin_rank FROM analytics.departments d LEFT JOIN analytics.employees e ON d.id = e.department_id LEFT JOIN (SELECT p.owning_department_id, SUM(pc.amount) AS total_project_cost FROM analytics.project_costs pc JOIN analytics.projects p ON pc.project_id = p.id GROUP BY p.owning_department_id) pc_agg ON d.id = pc_agg.owning_department_id LEFT JOIN (SELECT p.owning_department_id, SUM(il.quantity * il.unit_price) AS total_invoiced_amount FROM analytics.invoice_lines il JOIN analytics.invoices i ON il.invoice_id = i.id JOIN analytics.projects p ON i.project_id = p.id GROUP BY p.owning_department_id) inv_agg ON d.id = inv_agg.owning_department_id GROUP BY d.id, d.name, pc_agg.total_project_cost, inv_agg.total_invoiced_amount ORDER BY margin_rank",
+    "validated_sql": "SELECT d.name AS department_name, COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) AS active_employee_count, SUM(e.salary) AS total_annual_base_payroll, AVG(e.salary) AS average_employee_salary, COALESCE(pc_agg.total_project_cost, 0) AS total_project_cost, COALESCE(inv_agg.total_invoiced_amount, 0) AS total_invoiced_amount, COALESCE(inv_agg.total_invoiced_amount, 0) - COALESCE(pc_agg.total_project_cost, 0) AS total_project_margin, CASE WHEN COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) > 0 THEN SUM(e.salary) / COUNT(CASE WHEN LOWER(e.status) = 'active' THEN 1 END) ELSE NULL END AS annual_payroll_per_active_employee, RANK() OVER (ORDER BY (COALESCE(inv_agg.total_invoiced_amount, 0) - COALESCE(pc_agg.total_project_cost, 0)) DESC) AS margin_rank FROM analytics.departments AS d LEFT JOIN analytics.employees AS e ON d.id = e.department_id LEFT JOIN (SELECT p.owning_department_id, SUM(pc.amount) AS total_project_cost FROM analytics.project_costs AS pc JOIN analytics.projects AS p ON pc.project_id = p.id GROUP BY p.owning_department_id) AS pc_agg ON d.id = pc_agg.owning_department_id LEFT JOIN (SELECT p.owning_department_id, SUM(il.quantity * il.unit_price) AS total_invoiced_amount FROM analytics.invoice_lines AS il JOIN analytics.invoices AS i ON il.invoice_id = i.id JOIN analytics.projects AS p ON i.project_id = p.id GROUP BY p.owning_department_id) AS inv_agg ON d.id = inv_agg.owning_department_id GROUP BY d.id, d.name, pc_agg.total_project_cost, inv_agg.total_invoiced_amount ORDER BY margin_rank LIMIT 1000",
+    "validated_sql_change": "SQLGlot normalized the query and appended LIMIT 1000.",
+    "row_count": 4,
+    "department_keys": ["Engineering", "Sales", "People Operations", "Finance"],
+    "result_matches_reference": true,
+    "answer_grounded": true,
+    "chart": {"type": "bar", "x": "department_name", "measures": ["total_project_margin"], "orientation": "horizontal", "sort": "descending"},
+    "latency_ms": {"sql_generation": 34726.539, "database": 9.942, "answer_generation": 44724.635, "total_http": 80783},
+    "logical_model_calls": 2,
+    "token_usage": null,
+    "token_usage_note": "Usage is collected inside the request-scoped gateway but is not exposed by the public response or persisted checkpoint."
+  },
+  "gemini": {
+    "profile": "gemini",
+    "display_name": "Gemini 2.5 Flash",
+    "route": "adhoc_analytics",
+    "classification": "FAILED_STRUCTURED_OUTPUT",
+    "generated_sql": null,
+    "validated_sql": null,
+    "database_executed": false,
+    "row_count": 0,
+    "result_matches_reference": false,
+    "answer": null,
+    "chart": null,
+    "latency_ms": {"sql_generation_until_failure": 37248, "database": null, "answer_generation": null, "total_http": 37248},
+    "logical_model_calls": 1,
+    "token_usage": null,
+    "error": {"http_status": 502, "code": "invalid_structured_model_output", "retryable": true},
+    "note": "No retry was made, preserving one-request-per-profile fairness."
+  }
+}

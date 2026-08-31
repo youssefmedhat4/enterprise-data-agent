@@ -30,9 +30,8 @@ from app.knowledge.candidates import (
     KnowledgeCandidate,
     MetricProposal,
 )
-from app.knowledge.contracts import ApprovalStatus
+from app.knowledge.contracts import ApprovalStatus, SemanticAttribute, SemanticEntity
 from app.knowledge.discovery import SemanticModel
-from app.knowledge.contracts import SemanticAttribute, SemanticEntity
 from app.knowledge.expressions import BinaryOp, MetricRef
 from app.knowledge.guidance import ApprovedQueryExample, BusinessInstruction
 from app.knowledge.jobs import JobStatus, PostgresGenerationJobQueue
