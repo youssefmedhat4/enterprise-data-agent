@@ -1,4 +1,8 @@
+from uuid import uuid4
+
 from app.data.gateway import ColumnMetadata, TableMetadata
+from app.knowledge.contracts import ApprovalStatus, SemanticAttribute, SemanticEntity
+from app.knowledge.discovery import SemanticModel
 from app.semantic.entities import EntityResolver, normalize_value
 
 
@@ -208,3 +212,197 @@ def test_normalization_folds_case_accents_and_separators() -> None:
     assert normalize_value("People_Operations") == "people operations"
     assert normalize_value("Café") == "cafe"
     assert normalize_value("  Sales  Ops ") == "sales ops"
+
+
+# --- Confirmed semantic mappings drive resolution -------------------------
+
+
+def multi_column_table(
+    name: str,
+    columns: dict[str, tuple[str, ...]],
+    *,
+    schema: str = "analytics",
+) -> TableMetadata:
+    return TableMetadata(
+        schema_name=schema,
+        table_name=name,
+        columns=list(columns),
+        description=f"{name} fixture",
+        column_metadata=[
+            ColumnMetadata(
+                name=column,
+                data_type="VARCHAR",
+                nullable=False,
+                description="",
+                observed_values=values,
+                observed_values_source="fixture",
+            )
+            for column, values in columns.items()
+        ],
+    )
+
+
+#: Datasource B's naming shares nothing with the concept "Organizational Unit",
+#: so only a confirmed mapping can connect them.
+UNITS_TABLE = multi_column_table(
+    "business_units",
+    {
+        "unit_id": ("BU-1", "BU-2"),
+        "unit_name": ("Platform", "Revenue Ops"),
+    },
+)
+
+SOURCE_B = uuid4()
+UNIT_ENTITY_ID = uuid4()
+
+
+def semantic_model(
+    *,
+    entity_status: ApprovalStatus = ApprovalStatus.CONFIRMED,
+    label_status: ApprovalStatus = ApprovalStatus.CONFIRMED,
+) -> SemanticModel:
+    return SemanticModel(
+        data_source_id=SOURCE_B,
+        schema_fingerprint="fp-b",
+        entities=(
+            SemanticEntity(
+                id=UNIT_ENTITY_ID,
+                data_source_id=SOURCE_B,
+                source_schema="analytics",
+                source_table="business_units",
+                entity_name="Organizational Unit",
+                status=entity_status,
+            ),
+        ),
+        attributes=(
+            SemanticAttribute(
+                id=uuid4(),
+                data_source_id=SOURCE_B,
+                entity_id=UNIT_ENTITY_ID,
+                source_column="unit_id",
+                concept_name="Organizational Unit Key",
+                is_identifier=True,
+                status=ApprovalStatus.CONFIRMED,
+            ),
+            SemanticAttribute(
+                id=uuid4(),
+                data_source_id=SOURCE_B,
+                entity_id=UNIT_ENTITY_ID,
+                source_column="unit_name",
+                concept_name="Organizational Unit Name",
+                status=label_status,
+            ),
+        ),
+    )
+
+
+def test_confirmed_mapping_resolves_a_concept_that_matches_no_column_name() -> None:
+    """"Organizational Unit" appears in neither the table nor the column name."""
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(),
+    )
+
+    match = resolution.resolved
+    assert match is not None
+    assert match.value == "Platform"
+    assert match.qualified_column == "analytics.business_units.unit_name"
+
+
+def test_confirmed_mapping_reports_the_canonical_identifier_column() -> None:
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(),
+    )
+
+    match = resolution.resolved
+    assert match is not None
+    assert match.canonical_column == "analytics.business_units.unit_id"
+
+
+def test_an_unconfirmed_concept_resolves_to_nothing_rather_than_guessing() -> None:
+    """A concept with no confirmed binding must not fall back to name matching."""
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(entity_status=ApprovalStatus.PROPOSED),
+    )
+
+    assert resolution.is_unresolved
+
+
+def test_a_rejected_attribute_is_never_searched() -> None:
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(label_status=ApprovalStatus.REJECTED),
+    )
+
+    # unit_name is rejected, so "Platform" is no longer reachable; the
+    # identifier column remains confirmed but holds no such value.
+    assert resolution.is_unresolved
+
+
+def test_a_stale_attribute_is_never_searched() -> None:
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(label_status=ApprovalStatus.STALE),
+    )
+
+    assert resolution.is_unresolved
+
+
+def test_confirmed_mapping_still_cannot_read_an_unauthorized_table() -> None:
+    """Authorization outranks the mapping: no authorized table, no values."""
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(),
+    )
+
+    assert resolution.is_unresolved
+
+
+def test_confirmed_mapping_ignores_columns_outside_the_concept() -> None:
+    """A value in an unmapped column of a mapped table is not resolvable."""
+    table_with_extra = multi_column_table(
+        "business_units",
+        {
+            "unit_id": ("BU-1",),
+            "unit_name": ("Platform",),
+            "internal_codename": ("Bluebird",),
+        },
+    )
+
+    resolution = EntityResolver().resolve(
+        user_text="what about Bluebird",
+        authorized_tables=[table_with_extra],
+        concept="Organizational Unit",
+        semantic_model=semantic_model(),
+    )
+
+    assert resolution.is_unresolved
+
+
+def test_name_heuristic_alone_cannot_resolve_that_concept() -> None:
+    """Contrast: without a confirmed model the concept is unreachable.
+
+    "Organizational Unit" matches neither `business_units` nor `unit_name` by
+    name, which is precisely the gap confirmed mappings close.
+    """
+    resolution = EntityResolver().resolve(
+        user_text="margin for Platform",
+        authorized_tables=[UNITS_TABLE],
+        concept="Organizational Unit",
+    )
+
+    assert resolution.is_unresolved

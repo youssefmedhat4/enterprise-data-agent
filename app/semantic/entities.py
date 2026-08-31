@@ -19,9 +19,13 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+from uuid import UUID
 
 from app.data.gateway import TableMetadata
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, keeps semantic <- knowledge
+    from app.knowledge.discovery import SemanticModel
 
 type ResolutionStrategy = Literal["canonical", "exact", "prefix", "fuzzy"]
 
@@ -42,6 +46,81 @@ def normalize_value(text: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class ConceptBinding:
+    """A confirmed mapping from a business concept to a real column.
+
+    Produced only from CONFIRMED semantic entities and attributes, so a binding
+    is a reviewed assertion about meaning rather than a guess about naming.
+    """
+
+    schema_name: str
+    table_name: str
+    column: str
+    is_identifier: bool
+    canonical_column: str | None
+
+    @property
+    def qualified_column(self) -> str:
+        return f"{self.schema_name}.{self.table_name}.{self.column}"
+
+
+def confirmed_bindings(model: SemanticModel, concept: str) -> tuple[ConceptBinding, ...]:
+    """Columns backing `concept`, from confirmed semantic mappings only.
+
+    A concept may name an attribute ("Annual Base Salary"), which binds to the
+    column that carries it, or an entity ("Organizational Unit"), which binds to
+    that entity's confirmed columns. Both forms also carry the entity's
+    identifier column, so a caller can filter by canonical key rather than by a
+    display label.
+
+    PROPOSED, REJECTED and STALE knowledge is excluded, so unreviewed or
+    invalidated mappings can never steer resolution.
+    """
+    entities_by_id = {entity.id: entity for entity in model.confirmed_entities()}
+    confirmed_attributes = model.confirmed_attributes()
+
+    canonical_by_entity: dict[UUID, str] = {}
+    for attribute in confirmed_attributes:
+        entity = entities_by_id.get(attribute.entity_id)
+        if entity is None or not attribute.is_identifier:
+            continue
+        canonical_by_entity.setdefault(
+            attribute.entity_id,
+            f"{entity.source_schema}.{entity.source_table}.{attribute.source_column}",
+        )
+
+    selected = list(model.attributes_for_concept(concept))
+    entity_match = model.entity_for_concept(concept)
+    if entity_match is not None:
+        selected.extend(
+            attribute
+            for attribute in confirmed_attributes
+            if attribute.entity_id == entity_match.id
+        )
+
+    bindings: list[ConceptBinding] = []
+    seen: set[tuple[str, str, str]] = set()
+    for attribute in selected:
+        entity = entities_by_id.get(attribute.entity_id)
+        if entity is None:
+            continue
+        key = (entity.source_schema, entity.source_table, attribute.source_column)
+        if key in seen:
+            continue
+        seen.add(key)
+        bindings.append(
+            ConceptBinding(
+                schema_name=entity.source_schema,
+                table_name=entity.source_table,
+                column=attribute.source_column,
+                is_identifier=attribute.is_identifier,
+                canonical_column=canonical_by_entity.get(attribute.entity_id),
+            )
+        )
+    return tuple(bindings)
+
+
+@dataclass(frozen=True, slots=True)
 class EntityCandidate:
     """One possible real value, always traceable to where it came from."""
 
@@ -51,6 +130,7 @@ class EntityCandidate:
     column: str
     strategy: ResolutionStrategy
     confidence: float
+    canonical_column: str | None = None
 
     @property
     def qualified_column(self) -> str:
@@ -86,27 +166,38 @@ class EntityResolver:
         user_text: str,
         authorized_tables: list[TableMetadata],
         concept: str | None = None,
+        semantic_model: SemanticModel | None = None,
     ) -> EntityResolution:
         """Resolve `user_text` against observed values in authorized tables.
 
         `authorized_tables` must already be filtered to what the caller may
         read; this method does no authorization of its own and must never be
-        handed the full schema.
+        handed the full schema. Confirmed mappings decide which *columns* are
+        searched, but every value still comes from `authorized_tables`, so a
+        mapping onto a table the caller cannot read yields nothing.
 
-        `concept` optionally narrows resolution to the columns backing one
-        semantic concept, such as a governed dimension.
+        `concept` narrows resolution to the columns backing one business
+        concept. When `semantic_model` is supplied, those columns come from
+        CONFIRMED semantic mappings and nothing else: if the concept has no
+        confirmed binding, resolution returns no candidates rather than falling
+        back to guessing, because an unreviewed concept has no agreed meaning.
 
-        Until the confirmed semantic model supplies an explicit
-        concept-to-column mapping, a column is considered to back a concept when
-        the concept name appears in the column name or in its table name — which
-        covers both `employees.department` and `departments.name`. This is a
-        bridge, not the destination: a confirmed mapping should replace it.
+        Without a semantic model the resolver keeps its original behaviour and
+        treats a concept as a name hint against table and column names. That
+        path exists only for callers that have not yet onboarded a semantic
+        model; it is a fallback, not the intended route.
         """
         normalized_question = normalize_value(user_text)
         if not normalized_question:
             return EntityResolution(candidates=())
 
-        pool = list(self._candidate_values(authorized_tables, concept))
+        if semantic_model is not None and concept is not None:
+            bindings = confirmed_bindings(semantic_model, concept)
+            if not bindings:
+                return EntityResolution(candidates=())
+            pool = self._values_for_bindings(authorized_tables, bindings)
+        else:
+            pool = self._candidate_values(authorized_tables, concept)
 
         for strategy in ("canonical", "exact", "prefix", "fuzzy"):
             matches = self._match(strategy, normalized_question, pool)
@@ -116,13 +207,43 @@ class EntityResolver:
                 return EntityResolution(candidates=tuple(matches[:_MAX_AMBIGUOUS]))
         return EntityResolution(candidates=())
 
+    def _values_for_bindings(
+        self,
+        tables: list[TableMetadata],
+        bindings: tuple[ConceptBinding, ...],
+    ) -> list[tuple[str, str, str, str, str | None]]:
+        """Observed values for exactly the confirmed columns, nothing wider."""
+        by_column = {
+            (binding.schema_name, binding.table_name, binding.column): binding
+            for binding in bindings
+        }
+        pool: list[tuple[str, str, str, str, str | None]] = []
+        for table in tables:
+            for column in table.column_metadata:
+                binding = by_column.get(
+                    (table.schema_name, table.table_name, column.name)
+                )
+                if binding is None:
+                    continue
+                for value in column.observed_values:
+                    pool.append(
+                        (
+                            value,
+                            table.schema_name,
+                            table.table_name,
+                            column.name,
+                            binding.canonical_column,
+                        )
+                    )
+        return pool
+
     def _candidate_values(
         self,
         tables: list[TableMetadata],
         concept: str | None,
-    ) -> list[tuple[str, str, str, str]]:
-        """(value, schema, table, column) for every observed value in scope."""
-        pool: list[tuple[str, str, str, str]] = []
+    ) -> list[tuple[str, str, str, str, str | None]]:
+        """(value, schema, table, column, canonical) for values in scope."""
+        pool: list[tuple[str, str, str, str, str | None]] = []
         needle = normalize_value(concept) if concept else None
         for table in tables:
             table_matches = needle is not None and needle in normalize_value(
@@ -137,18 +258,20 @@ class EntityResolver:
                 # cardinality exceeded the configured bound reports none, which
                 # keeps high-cardinality personal data out of resolution.
                 for value in column.observed_values:
-                    pool.append((value, table.schema_name, table.table_name, column.name))
+                    pool.append(
+                        (value, table.schema_name, table.table_name, column.name, None)
+                    )
         return pool
 
     def _match(
         self,
         strategy: str,
         normalized_question: str,
-        pool: list[tuple[str, str, str, str]],
+        pool: list[tuple[str, str, str, str, str | None]],
     ) -> list[EntityCandidate]:
         matches: list[EntityCandidate] = []
         seen: set[tuple[str, str]] = set()
-        for value, schema_name, table_name, column in pool:
+        for value, schema_name, table_name, column, canonical_column in pool:
             normalized_value = normalize_value(value)
             if not normalized_value:
                 continue
@@ -167,6 +290,7 @@ class EntityResolver:
                     column=column,
                     strategy=strategy,  # type: ignore[arg-type]
                     confidence=confidence,
+                    canonical_column=canonical_column,
                 )
             )
         # Longer values first: "People Operations" should beat "Operations"
