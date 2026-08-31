@@ -7,20 +7,25 @@ LLM call and does not treat a plausible answer as a passing result.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 from decimal import Decimal
 
 import psycopg
 import pytest
 
+from app.config import get_settings
+from app.knowledge.datasources import DataSourceConnectionResolver, DataSourceError
+
 pytestmark = pytest.mark.legacy
 
 
 @pytest.fixture
 def legacy_connection() -> Generator[psycopg.Connection[tuple[object, ...]]]:
-    dsn = os.environ.get("LEGACY_DATABASE_URL")
-    if not dsn:
+    try:
+        dsn = DataSourceConnectionResolver(get_settings()).resolve(
+            "LEGACY_DATABASE_URL"
+        )
+    except DataSourceError:
         pytest.skip("LEGACY_DATABASE_URL is not configured.")
     try:
         connection = psycopg.connect(dsn, connect_timeout=5)
@@ -43,9 +48,16 @@ def _scalar(connection: psycopg.Connection[tuple[object, ...]], sql: str) -> obj
 def test_legacy_fixture_counts_and_decisive_business_values(
     legacy_connection: psycopg.Connection[tuple[object, ...]],
 ) -> None:
+    assert _scalar(legacy_connection, "SELECT count(*) FROM erp.org_unit_lkp") == 10
     assert _scalar(legacy_connection, "SELECT count(*) FROM erp.emp_mst") == 60
+    assert _scalar(
+        legacy_connection, "SELECT count(*) FROM erp.emp_comp_hist"
+    ) == 159
     assert _scalar(legacy_connection, "SELECT count(*) FROM erp.cust_mst") == 22
     assert _scalar(legacy_connection, "SELECT count(*) FROM erp.prj_hdr") == 40
+    assert _scalar(legacy_connection, "SELECT count(*) FROM erp.ar_inv_hdr") == 102
+    assert _scalar(legacy_connection, "SELECT count(*) FROM erp.ar_inv_ln") == 408
+    assert _scalar(legacy_connection, "SELECT count(*) FROM erp.gl_cost_txn") == 350
     assert _scalar(
         legacy_connection, "SELECT count(*) FROM erp.emp_mst WHERE stat_cd = 'A'"
     ) == 42

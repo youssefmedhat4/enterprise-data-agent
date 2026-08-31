@@ -127,6 +127,9 @@ def build_graph(
         "authorize_request": _authorize_request(
             db_gateway, authorizer, metric_registry, data_source_id
         ),
+        "resolve_question_entities": _resolve_question_entities(
+            entity_value_gateway, semantic_model
+        ),
         "route_query": _route_query(router, semantic_governed),
         "plan_metric_request": _plan_metric_request(planner),
         "execute_metric": _execute_metric(metric_gateway),
@@ -147,6 +150,7 @@ def build_graph(
         graph.add_node(name, _observed_node(name, node, traces))
     graph.set_entry_point("prepare_request")
     graph.add_edge("prepare_request", "authorize_request")
+    graph.add_edge("authorize_request", "resolve_question_entities")
     if semantic_governed:
         assert metric_intent_planner is not None and metric_registry is not None
         graph.add_node(
@@ -173,7 +177,11 @@ def build_graph(
             ),
         )
     if enable_query_router:
-        graph.add_edge("authorize_request", "route_query")
+        graph.add_conditional_edges(
+            "resolve_question_entities",
+            _route_after_question_entity_resolution,
+            {"continue": "route_query", "clarify": "clarify"},
+        )
         if semantic_governed:
             # Alias matching no longer decides governed routing. The
             # deterministic router keeps block and clarify, which must not
@@ -220,7 +228,11 @@ def build_graph(
             "ground_answer" if generate_answer else "finalize_sql_result",
         )
     else:
-        graph.add_edge("authorize_request", "retrieve_schema")
+        graph.add_conditional_edges(
+            "resolve_question_entities",
+            _route_after_question_entity_resolution,
+            {"continue": "retrieve_schema", "clarify": "clarify"},
+        )
     graph.add_edge("retrieve_schema", "generate_sql")
     graph.add_conditional_edges(
         "generate_sql",
@@ -286,6 +298,7 @@ def _prepare_request(sql_generation_provider: Literal["llm", "wren"]) -> Node:
             "execution_route": QueryRoute.ADHOC_ANALYTICS.value,
             "routing_latency_ms": 0,
             "metric_planning_latency_ms": 0,
+            "resolved_entity_context": [],
             "sql_validation_attempts": 0,
             "sql_repair_attempted": False,
             "sql_repair_succeeded": False,
@@ -516,6 +529,111 @@ def _resolve_metric_entities(
         }
 
     return node
+
+
+def _route_after_question_entity_resolution(state: AgentState) -> str:
+    return "clarify" if state.get("needs_clarification", False) else "continue"
+
+
+def _resolve_question_entities(
+    entity_values: EntityValueGateway | None,
+    semantic_model: SemanticModel | None,
+) -> Node:
+    """Resolve explicit entity values after OPA but before routing or LLM use."""
+
+    async def node(state: AgentState) -> AgentState:
+        if entity_values is None or semantic_model is None:
+            return {}
+        resolution = await entity_values.resolve(
+            user_text=state["question"],
+            semantic_model=semantic_model,
+            authorized_tables=state.get("available_metadata", []),
+        )
+        if resolution.is_ambiguous and _has_actionable_entity_reference(
+            state["question"], list(resolution.candidates), semantic_model
+        ):
+            candidates = list(resolution.candidates)
+            entity_ids = {candidate.semantic_entity_id for candidate in candidates}
+            entity_names = {
+                entity.entity_name
+                for entity in semantic_model.confirmed_entities()
+                if entity.id in entity_ids
+            }
+            label = next(iter(entity_names), "entity") if len(entity_names) == 1 else "entity"
+            choices = "; ".join(
+                f"{candidate.canonical_key} | {candidate.display_value}"
+                for candidate in candidates
+            )
+            return {
+                "execution_route": QueryRoute.CLARIFY.value,
+                "model_action": "clarify",
+                "needs_clarification": True,
+                "clarification_question": f"Which {label} do you mean: {choices}?",
+            }
+
+        candidate = resolution.resolved
+        if candidate is None or not _has_actionable_entity_reference(
+            state["question"], [candidate], semantic_model
+        ):
+            return {}
+        entity_name = next(
+            (
+                entity.entity_name
+                for entity in semantic_model.confirmed_entities()
+                if entity.id == candidate.semantic_entity_id
+            ),
+            "entity",
+        )
+        return {
+            "resolved_entity_context": [
+                {
+                    "entity": entity_name,
+                    "canonical_column": candidate.canonical_column or "",
+                    "canonical_key": candidate.canonical_key or "",
+                    "display_column": candidate.qualified_column,
+                    "display_value": candidate.display_value or candidate.value,
+                }
+            ]
+        }
+
+    return node
+
+
+def _has_actionable_entity_reference(
+    question: str,
+    candidates: list[Any],
+    semantic_model: SemanticModel,
+) -> bool:
+    """Distinguish a named entity from generic schema vocabulary.
+
+    ``project`` should not clarify among every project whose name starts with
+    that word, while ``Project 040`` and ``ACME Holding`` are meaningful entity
+    references. Reference-code labels such as ``Active`` remain semantic data,
+    not standalone entity filters, unless the user explicitly asks for codes.
+    """
+    normalized_question = " ".join(question.casefold().split())
+    names = {
+        entity.id: entity.entity_name.casefold()
+        for entity in semantic_model.confirmed_entities()
+    }
+    for candidate in candidates:
+        entity_name = names.get(candidate.semantic_entity_id, "")
+        if "code" in entity_name and entity_name not in normalized_question:
+            continue
+        canonical = (candidate.canonical_key or "").casefold()
+        display = " ".join(
+            (candidate.display_value or candidate.value).casefold().split()
+        )
+        if canonical and canonical in normalized_question:
+            return True
+        if display and display in normalized_question:
+            return True
+        # A two-or-more-word leading portion is a deliberate fuzzy entity
+        # reference (for example ACME Holding -> two possible customer names).
+        prefix = " ".join(display.split()[:-1])
+        if len(prefix.split()) >= 2 and prefix in normalized_question:
+            return True
+    return False
 
 
 def _plan_metric_intent(
@@ -908,6 +1026,7 @@ def _generate_sql(
                 state.get("governance_snapshot", GovernanceSnapshot(provider="disabled")),
                 approved_examples=examples,
                 business_instructions=instructions,
+                resolved_entities=state.get("resolved_entity_context", []),
             ),
             response_model=SQLGeneration,
         )
@@ -1542,6 +1661,7 @@ def _sql_user_prompt(
     governance: GovernanceSnapshot,
     approved_examples: list[ApprovedQueryExample] | None = None,
     business_instructions: list[BusinessInstruction] | None = None,
+    resolved_entities: list[dict[str, str]] | None = None,
 ) -> str:
     schema_lines = [_format_table_metadata(table) for table in metadata]
     schema_context = "\n".join(schema_lines)
@@ -1574,6 +1694,17 @@ def _sql_user_prompt(
         f"Business semantic context:\n{semantic_context}",
         f"Authorized governance context:\n{governance_context}",
     ]
+    if resolved_entities:
+        identities = "\n".join(
+            "- {entity}: canonical {canonical_column}={canonical_key!r}; "
+            "display {display_column}={display_value!r}".format(**entity)
+            for entity in resolved_entities
+        )
+        sections.append(
+            "Confirmed entity identities from the selected authorized datasource. "
+            "Use these identifiers when the current question needs their entity; "
+            f"do not substitute a different value:\n{identities}"
+        )
     if business_instructions:
         rules = "\n".join(
             f"- {instruction.title}: {instruction.instruction}"

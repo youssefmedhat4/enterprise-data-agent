@@ -6,6 +6,12 @@ from uuid import uuid4
 
 import pytest
 
+from app.agent.graph import _has_actionable_entity_reference, build_graph
+from app.authorization.gateway import (
+    AuthorizationDecision,
+    AuthorizationGateway,
+    AuthorizationRequest,
+)
 from app.data.gateway import (
     ColumnMetadata,
     DatabaseExecutionMetadata,
@@ -17,7 +23,15 @@ from app.data.gateway import (
 )
 from app.knowledge.contracts import ApprovalStatus, SemanticAttribute, SemanticEntity
 from app.knowledge.discovery import SemanticModel
-from app.semantic.entity_values import DatabaseEntityValueGateway, entity_lookup_bindings
+from app.llm.gateway import LLMGateway, ResponseModelT
+from app.routing.router import DeterministicQueryRouter
+from app.security.sql_validation import SQLValidator
+from app.semantic.entities import EntityCandidate
+from app.semantic.entity_values import (
+    DatabaseEntityValueGateway,
+    _search_terms,
+    entity_lookup_bindings,
+)
 
 SOURCE_ID = uuid4()
 UNIT_ID = uuid4()
@@ -181,6 +195,33 @@ class _RecordingGateway(DatabaseGateway):
         return None
 
 
+class _AllowAll(AuthorizationGateway):
+    async def authorize(self, request: AuthorizationRequest) -> AuthorizationDecision:
+        return AuthorizationDecision(
+            allowed=True,
+            provider="test",
+            table_columns={table.identifier: table.columns for table in request.tables},
+            allowed_schemas=("erp",),
+            allowed_metrics=request.metrics,
+        )
+
+    async def close(self) -> None:
+        return None
+
+
+class _NoModelCall(LLMGateway):
+    async def generate_structured(
+        self,
+        *,
+        model_alias: str,
+        system: str,
+        user: str,
+        response_model: type[ResponseModelT],
+    ) -> ResponseModelT:
+        del model_alias, system, user, response_model
+        raise AssertionError("Entity ambiguity must clarify before a model call.")
+
+
 @pytest.mark.anyio
 async def test_live_lookup_preserves_canonical_identity_and_ambiguity() -> None:
     database = _RecordingGateway()
@@ -247,3 +288,59 @@ async def test_live_lookup_never_queries_unapproved_or_unauthorized_columns() ->
     assert resolution.is_unresolved
     assert database.calls == []
     assert entity_lookup_bindings(_model(), restricted) == ()
+
+
+@pytest.mark.anyio
+async def test_adhoc_entity_ambiguity_clarifies_before_routing_or_model_use() -> None:
+    database = _RecordingGateway()
+    graph = build_graph(
+        db_gateway=database,
+        llm_gateway=_NoModelCall(),
+        sql_validator=SQLValidator(allowed_schemas=frozenset({"erp"})),
+        query_router=DeterministicQueryRouter(),
+        semantic_model=_model(),
+        entity_value_gateway=DatabaseEntityValueGateway(database),
+        authorization_gateway=_AllowAll(),
+        enable_query_router=True,
+        generate_answer=False,
+    )
+
+    result = await graph.ainvoke(
+        {
+            "request_id": "entity-ambiguity",
+            "trace_id": "entity-ambiguity",
+            "thread_id": "entity-ambiguity",
+            "question": "What is the payroll for Operations?",
+        }
+    )
+
+    assert result["needs_clarification"] is True
+    assert result["execution_metadata"].status == "clarification_required"
+    assert result["clarification_question"] == (
+        "Which Organizational Unit do you mean: "
+        "OU2100 | Operations; OU2200 | Operations?"
+    )
+
+
+def test_entity_lookup_keeps_a_trailing_named_value_in_its_bounded_terms() -> None:
+    terms = _search_terms("What is the project margin for Project 040?")
+
+    assert "Project 040" in terms
+
+
+def test_generic_entity_vocabulary_does_not_trigger_a_catalog_clarification() -> None:
+    candidate = EntityCandidate(
+        value="Project 001",
+        schema_name="erp",
+        table_name="prj_hdr",
+        column="prj_nm",
+        strategy="prefix",
+        confidence=0.9,
+        semantic_entity_id=PROJECT_ID,
+        canonical_key="5001",
+        display_value="Project 001",
+    )
+
+    assert not _has_actionable_entity_reference(
+        "What is the total project margin?", [candidate], _model()
+    )

@@ -101,6 +101,7 @@ def deterministic_test_configuration(
         request.node.get_closest_marker("cloud") is not None
         or request.node.get_closest_marker("local_llm") is not None
     )
+    legacy_database_test = request.node.get_closest_marker("legacy") is not None
     if not external_model_test:
         monkeypatch.setenv("LLM_PROVIDER", "fake")
         monkeypatch.setenv("LLM_MODEL_ANALYTICS_GENERAL", "fake/analytics-general")
@@ -124,7 +125,15 @@ def deterministic_test_configuration(
         monkeypatch.setenv("KNOWLEDGE_WORKER_ENABLED", "0")
         monkeypatch.setenv("QUESTION_MEMORY_ENABLED", "0")
         monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
-        monkeypatch.setenv("ALLOWED_CONNECTION_REFS", "DATABASE_URL")
+        # Live Legacy ERP checks resolve their explicitly allowlisted secret
+        # through the same Settings/.env path as registered datasources.  The
+        # DSN remains private; only its reference name is made available.
+        allowed_references = (
+            "DATABASE_URL,LEGACY_DATABASE_URL"
+            if legacy_database_test
+            else "DATABASE_URL"
+        )
+        monkeypatch.setenv("ALLOWED_CONNECTION_REFS", allowed_references)
     get_settings.cache_clear()
     _development_checkpoint_store.cache_clear()
     yield

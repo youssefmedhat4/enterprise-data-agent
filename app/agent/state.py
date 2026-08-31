@@ -45,6 +45,10 @@ class AgentState(TypedDict, total=False):
     semantic_selection_reasons: dict[str, tuple[str, ...]]
     semantic_context_size_chars: int
     governance_snapshot: GovernanceSnapshot
+    #: Entity identities resolved from the selected, authorized datasource.
+    #: This is data context for the current request, never an authorization
+    #: grant and never a model-generated value.
+    resolved_entity_context: list[dict[str, str]]
     sql_generation_provider: str
     model_action: str
     generated_sql: str | None

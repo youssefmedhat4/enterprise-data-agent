@@ -203,7 +203,14 @@ def _lookup_attempts(user_text: str) -> tuple[tuple[str, str, str], ...]:
 
 def _search_terms(user_text: str) -> tuple[str, ...]:
     words = re.findall(r"[\w-]+", user_text, flags=re.UNICODE)
+    # An entity is commonly the final part of a natural-language request
+    # ("payroll for Operations" or "margin for Project 040"). Preserve its
+    # trailing phrases before broader grammar, then add individual tokens so a
+    # canonical key such as OU2100 remains reachable. This stays bounded below.
     phrases = [user_text.strip()]
+    for width in range(min(4, len(words)), 1, -1):
+        phrases.append(" ".join(words[-width:]))
+    phrases.extend(sorted(words, key=lambda word: (-len(word), word)))
     for width in range(min(4, len(words)), 0, -1):
         phrases.extend(
             " ".join(words[start : start + width])
