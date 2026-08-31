@@ -139,12 +139,14 @@ async def _assert_cross_datasource_reference_is_refused(
         )
 
     # Datasource B pointing at datasource A's entity: refused by the database.
+    # A column name the entity does not already map, so the composite foreign
+    # key is what rejects this rather than UNIQUE (entity_id, source_column).
     with pytest.raises(errors.ForeignKeyViolation):
         async with conn.transaction(), conn.cursor() as cursor:
             await cursor.execute(
                 "INSERT INTO knowledge.semantic_attributes "
                 "(data_source_id, entity_id, source_column, concept_name) "
-                "VALUES (%s, %s, 'salary', 'Leaked Concept')",
+                "VALUES (%s, %s, 'bonus', 'Leaked Concept')",
                 (source_b, entity_a),
             )
 

@@ -102,6 +102,9 @@ CREATE TABLE knowledge.semantic_attributes (
     updated_at          timestamptz NOT NULL DEFAULT now(),
     reviewed_at         timestamptz,
     UNIQUE (entity_id, source_column),
+    -- Lets other datasource-scoped tables carry a composite foreign key, so an
+    -- attribute can never be referenced from a different datasource.
+    UNIQUE (id, data_source_id),
     -- An attribute can never point at an entity in a different datasource.
     FOREIGN KEY (entity_id, data_source_id)
         REFERENCES knowledge.semantic_entities (id, data_source_id) ON DELETE CASCADE
