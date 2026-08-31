@@ -192,3 +192,104 @@ export async function reviewCandidate(
       : "The review could not be completed.";
   return { ok: false, message: detail };
 }
+
+export interface SemanticProposal {
+  id: string;
+  kind: "entity" | "attribute" | "relationship";
+  physical: string;
+  proposedConcept: string;
+  confidence: number | null;
+  status: ApprovalStatus;
+  detail: string;
+}
+
+export function fetchSemantics(dataSourceId: string): Promise<SemanticProposal[]> {
+  return get(`/data-sources/${dataSourceId}/semantics`, (raw: Record<string, unknown>) => ({
+    id: str(raw.id),
+    kind: str(raw.kind, "entity") as SemanticProposal["kind"],
+    physical: str(raw.physical),
+    proposedConcept: str(raw.proposed_concept),
+    confidence: typeof raw.confidence === "number" ? raw.confidence : null,
+    status: str(raw.status, "PROPOSED") as ApprovalStatus,
+    detail: str(raw.detail),
+  }));
+}
+
+/**
+ * Approve, edit, or reject one semantic mapping.
+ *
+ * The decision is persisted by the backend and is the same record runtime
+ * resolves against, so this is never a display-only status change.
+ */
+export async function reviewSemantic(
+  dataSourceId: string,
+  proposalId: string,
+  action: "approve" | "reject",
+  conceptName?: string,
+): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(
+    `${BASE}/data-sources/${dataSourceId}/semantics/${proposalId}/review`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        action,
+        concept_name: conceptName ?? null,
+        reason: action === "reject" ? "Rejected by reviewer." : null,
+      }),
+    },
+  );
+  if (response.ok) {
+    return {
+      ok: true,
+      message: action === "approve" ? "Confirmed." : "Rejected.",
+    };
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  const detail =
+    payload !== null && typeof payload === "object" && "detail" in payload
+      ? String((payload as { detail: unknown }).detail)
+      : "The review could not be completed.";
+  return { ok: false, message: detail };
+}
+
+export interface ScanSummary {
+  schemaFingerprint: string;
+  schemaChanged: boolean;
+  tableCount: number;
+  proposedEntities: number;
+  proposedAttributes: number;
+  proposedRelationships: number;
+  markedStale: number;
+}
+
+export async function scanDataSource(
+  dataSourceId: string,
+): Promise<{ ok: boolean; message: string; summary: ScanSummary | null }> {
+  const response = await fetch(`${BASE}/data-sources/${dataSourceId}/scan`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      payload !== null && typeof payload === "object" && "detail" in payload
+        ? String((payload as { detail: unknown }).detail)
+        : "The scan could not be completed.";
+    return { ok: false, message: detail, summary: null };
+  }
+  const raw = (payload ?? {}) as Record<string, unknown>;
+  return {
+    ok: true,
+    message: "Scan complete.",
+    summary: {
+      schemaFingerprint: str(raw.schema_fingerprint),
+      schemaChanged: raw.schema_changed === true,
+      tableCount: num(raw.table_count),
+      proposedEntities: num(raw.proposed_entities),
+      proposedAttributes: num(raw.proposed_attributes),
+      proposedRelationships: num(raw.proposed_relationships),
+      markedStale: num(raw.marked_stale),
+    },
+  };
+}

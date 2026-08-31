@@ -9,7 +9,9 @@ import {
   Gauge,
   Layers,
   Lightbulb,
+  RefreshCw,
   Repeat,
+  Shapes,
   X,
 } from "lucide-react";
 
@@ -26,12 +28,16 @@ import {
   fetchCertifiedMetrics,
   fetchClusters,
   fetchQueryExamples,
+  fetchSemantics,
   KnowledgeAccessError,
   reviewCandidate,
+  reviewSemantic,
+  scanDataSource,
   type CertifiedMetric,
   type KnowledgeCandidate,
   type KnowledgeCluster,
   type QueryExample,
+  type SemanticProposal,
 } from "@/lib/knowledge/knowledge";
 
 interface KnowledgeConsoleProps {
@@ -54,23 +60,32 @@ export function KnowledgeConsole({
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
   const [metrics, setMetrics] = useState<CertifiedMetric[]>([]);
   const [examples, setExamples] = useState<QueryExample[]>([]);
+  const [semantics, setSemantics] = useState<SemanticProposal[]>([]);
+  const [editing, setEditing] = useState<Record<string, string>>({});
   const [denied, setDenied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [nextClusters, nextCandidates, nextMetrics, nextExamples] =
-        await Promise.all([
-          fetchClusters(dataSourceId),
-          fetchCandidates(dataSourceId),
-          fetchCertifiedMetrics(dataSourceId),
-          fetchQueryExamples(dataSourceId),
-        ]);
+      const [
+        nextClusters,
+        nextCandidates,
+        nextMetrics,
+        nextExamples,
+        nextSemantics,
+      ] = await Promise.all([
+        fetchClusters(dataSourceId),
+        fetchCandidates(dataSourceId),
+        fetchCertifiedMetrics(dataSourceId),
+        fetchQueryExamples(dataSourceId),
+        fetchSemantics(dataSourceId),
+      ]);
       setClusters(nextClusters);
       setCandidates(nextCandidates);
       setMetrics(nextMetrics);
       setExamples(nextExamples);
+      setSemantics(nextSemantics);
       setDenied(false);
     } catch (error) {
       if (error instanceof KnowledgeAccessError && error.status === 403) {
@@ -99,6 +114,42 @@ export function KnowledgeConsole({
       await load();
     },
     [dataSourceId, load],
+  );
+
+  const reviewMapping = useCallback(
+    async (proposalId: string, action: "approve" | "reject") => {
+      setBusyId(proposalId);
+      const corrected = editing[proposalId]?.trim();
+      const result = await reviewSemantic(
+        dataSourceId,
+        proposalId,
+        action,
+        action === "approve" && corrected ? corrected : undefined,
+      );
+      setNotice(result.message);
+      setBusyId(null);
+      await load();
+    },
+    [dataSourceId, editing, load],
+  );
+
+  const scan = useCallback(async () => {
+    setBusyId("scan");
+    const result = await scanDataSource(dataSourceId);
+    setNotice(
+      result.summary === null
+        ? result.message
+        : `Scanned ${result.summary.tableCount} tables · ` +
+          `${result.summary.proposedEntities} entity proposals · ` +
+          `${result.summary.markedStale} marked stale`,
+    );
+    setBusyId(null);
+    await load();
+  }, [dataSourceId, load]);
+
+  const proposals = semantics.filter((item) => item.status === "PROPOSED");
+  const confirmed = semantics.filter(
+    (item) => item.status === "CONFIRMED" || item.status === "STALE",
   );
 
   const source =
@@ -145,6 +196,10 @@ export function KnowledgeConsole({
       <Tabs defaultValue="sources">
         <TabsList className="flex-wrap">
           <TabsTrigger value="sources">Data sources</TabsTrigger>
+          <TabsTrigger value="review">
+            Schema review{proposals.length > 0 ? ` (${proposals.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="confirmed">Confirmed semantics</TabsTrigger>
           <TabsTrigger value="questions">Recurring questions</TabsTrigger>
           <TabsTrigger value="candidates">Candidates</TabsTrigger>
           <TabsTrigger value="metrics">Certified metrics</TabsTrigger>
@@ -168,7 +223,18 @@ export function KnowledgeConsole({
                     </code>
                   </p>
                 </div>
-                <Badge variant="secondary">{entry.status}</Badge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="secondary">{entry.status}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busyId !== null}
+                    onClick={() => void scan()}
+                  >
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    {entry.lastScannedAt === null ? "Scan" : "Rescan"}
+                  </Button>
+                </div>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <Stat label="Certified metrics" value={entry.certifiedMetricCount} />
@@ -176,6 +242,126 @@ export function KnowledgeConsole({
                 <Stat label="Awaiting review" value={entry.proposedEntityCount} />
                 <Stat label="Recurring patterns" value={entry.recurringClusterCount} />
               </dl>
+            </article>
+          ))}
+        </TabsContent>
+
+        {/* -------------------------------------------------- schema review */}
+        <TabsContent value="review" className="mt-4 space-y-3">
+          <Empty
+            when={proposals.length === 0}
+            icon={Shapes}
+            message="No proposals awaiting review. Scan a data source to discover what its tables mean."
+          />
+          {proposals.map((proposal) => (
+            <article
+              key={proposal.id}
+              className="rounded-lg border border-border p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {proposal.physical}
+                  </p>
+                  <h2 className="mt-1 font-medium">
+                    {proposal.proposedConcept}
+                  </h2>
+                  {proposal.detail !== "" ? (
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      {proposal.detail}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline">{proposal.kind}</Badge>
+                  {proposal.confidence !== null ? (
+                    <Badge variant="secondary">
+                      {Math.round(proposal.confidence * 100)}%
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <label className="sr-only" htmlFor={`edit-${proposal.id}`}>
+                  Corrected meaning for {proposal.physical}
+                </label>
+                <input
+                  id={`edit-${proposal.id}`}
+                  value={editing[proposal.id] ?? ""}
+                  placeholder={proposal.proposedConcept}
+                  onChange={(event) =>
+                    setEditing((current) => ({
+                      ...current,
+                      [proposal.id]: event.target.value,
+                    }))
+                  }
+                  className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+                />
+                <Button
+                  size="sm"
+                  disabled={busyId === proposal.id}
+                  onClick={() => void reviewMapping(proposal.id, "approve")}
+                >
+                  <Check className="size-3.5" aria-hidden="true" />
+                  {editing[proposal.id]?.trim() ? "Save & approve" : "Approve"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busyId === proposal.id}
+                  onClick={() => void reviewMapping(proposal.id, "reject")}
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                  Reject
+                </Button>
+              </div>
+            </article>
+          ))}
+        </TabsContent>
+
+        {/* --------------------------------------------- confirmed semantics */}
+        <TabsContent value="confirmed" className="mt-4 space-y-3">
+          <Empty
+            when={confirmed.length === 0}
+            icon={Layers}
+            message="Nothing confirmed yet. Approved mappings appear here and drive how questions are understood."
+          />
+          {confirmed.map((mapping) => (
+            <article
+              key={mapping.id}
+              className="rounded-lg border border-border p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="font-medium">{mapping.proposedConcept}</h2>
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    {mapping.physical}
+                  </p>
+                  {mapping.detail !== "" ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {mapping.detail}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline">{mapping.kind}</Badge>
+                  <Badge
+                    variant={
+                      mapping.status === "STALE" ? "destructive" : "default"
+                    }
+                  >
+                    {mapping.status}
+                  </Badge>
+                </div>
+              </div>
+              {mapping.status === "STALE" ? (
+                <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+                  The schema changed underneath this mapping. It is no longer used
+                  until re-confirmed.
+                </p>
+              ) : null}
             </article>
           ))}
         </TabsContent>
