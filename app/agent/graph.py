@@ -284,6 +284,9 @@ def _plan_metric_request(planner: MetricRequestPlanner) -> Node:
             state["question"],
             state["route_decision"],
             prior_context=state.get("analytical_context"),
+            # Authorization already filtered this; the resolver must never see
+            # more of the schema than the caller may read.
+            authorized_tables=state.get("available_metadata", []),
         )
         query = plan.query
         if query.metric not in state["authorized_metric_ids"]:

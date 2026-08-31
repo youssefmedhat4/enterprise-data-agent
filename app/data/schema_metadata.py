@@ -9,7 +9,17 @@ def synthetic_enterprise_metadata() -> list[TableMetadata]:
             "One row per enterprise department, with English/Arabic labels.",
             [
                 _column("id", "INTEGER", False, "Department identifier.", pk=True),
-                _column("name", "VARCHAR", False, "English department name."),
+                # Department labels are a low-cardinality dimension, so the
+                # fixture reports them the way a live scan of a categorical
+                # column would. EntityResolver reads these; nothing in the
+                # planner hardcodes department names any more.
+                _column(
+                    "name",
+                    "VARCHAR",
+                    False,
+                    "English department name.",
+                    observed=("Engineering", "Finance", "People Operations", "Sales"),
+                ),
                 _column("arabic_name", "VARCHAR", False, "Arabic department name."),
                 _column("cost_center", "VARCHAR", False, "Finance cost-center code."),
                 _column(

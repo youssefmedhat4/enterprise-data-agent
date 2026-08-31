@@ -4,6 +4,7 @@ import re
 from time import perf_counter
 
 from app.agent.context import AnalyticalContext
+from app.data.gateway import TableMetadata
 from app.metrics.catalog import metric_definition, validate_metric_query
 from app.metrics.gateway import (
     MetricFilter,
@@ -21,8 +22,8 @@ from app.routing.contracts import (
     RouteReasonCode,
 )
 from app.routing.router import normalize_text
+from app.semantic.entities import EntityResolver
 
-_DEPARTMENT_VALUES = ("Engineering", "Sales", "Finance", "People Operations")
 _TIME_GRAINS = {
     "by year": MetricTimeGrain.YEAR,
     "by quarter": MetricTimeGrain.QUARTER,
@@ -38,12 +39,16 @@ _TIME_GRAINS = {
 class MetricRequestPlanner:
     """Produce only catalog-validated governed members, never SQL or formulas."""
 
+    def __init__(self, entity_resolver: EntityResolver | None = None) -> None:
+        self._entities = entity_resolver or EntityResolver()
+
     def plan(
         self,
         question: str,
         decision: RouteDecision,
         *,
         prior_context: AnalyticalContext | None = None,
+        authorized_tables: list[TableMetadata] | None = None,
     ) -> MetricRequestPlan:
         started = perf_counter()
         if decision.route != QueryRoute.GOVERNED_METRIC:
@@ -82,17 +87,27 @@ class MetricRequestPlanner:
             raise MetricPlanningError(
                 "Customer status is not an allowed governed filter for this metric."
             )
-        if "department" in {dimension.id for dimension in definition.dimensions}:
-            for value in _DEPARTMENT_VALUES:
-                if normalize_text(value) in normalized:
-                    filters = [item for item in filters if item.dimension != "department"]
-                    filters.append(
-                        MetricFilter(
-                            dimension="department",
-                            operator=MetricFilterOperator.EQ,
-                            values=(value,),
-                        )
-                    )
+        # Entity values are resolved against the live, authorized datasource
+        # rather than a hardcoded list, so this works for any schema. Only an
+        # unambiguous match becomes a filter: an ambiguous or absent one leaves
+        # the query unfiltered instead of guessing.
+        for dimension in definition.dimensions:
+            resolution = self._entities.resolve(
+                user_text=question,
+                authorized_tables=authorized_tables or [],
+                concept=dimension.id,
+            )
+            match = resolution.resolved
+            if match is None:
+                continue
+            filters = [item for item in filters if item.dimension != dimension.id]
+            filters.append(
+                MetricFilter(
+                    dimension=dimension.id,
+                    operator=MetricFilterOperator.EQ,
+                    values=(match.value,),
+                )
+            )
 
         time_dimension = prior_query.time_dimension if prior_query is not None else None
         time_grain = prior_query.time_grain if prior_query is not None else None

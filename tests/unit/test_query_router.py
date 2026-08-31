@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.agent.context import AnalyticalContext
+from app.data.schema_metadata import synthetic_enterprise_metadata
 from app.errors import ErrorCode, normalize_error
 from app.metrics.gateway import MetricOrderDirection, MetricQuery
 from app.routing.contracts import MetricPlanningError, QueryRoute
@@ -91,6 +92,9 @@ def test_metric_planner_preserves_metric_followup_and_adds_filter() -> None:
         "Only Engineering",
         decision,
         prior_context=prior,
+        # Entity values come from the datasource now, not a constant in the
+        # planner, so the caller must supply the authorized schema.
+        authorized_tables=synthetic_enterprise_metadata(),
     )
 
     assert plan.used_prior_context is True
