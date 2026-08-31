@@ -70,6 +70,12 @@ class AgentState(TypedDict, total=False):
     execution_route: str
     routing_latency_ms: float
     metric_query: MetricQuery
+    #: Extra governed metrics for a composite plan. The primary metric
+    #: stays in `metric_query`; these are executed at the same grain and
+    #: joined by the composition layer.
+    additional_metric_queries: list[MetricQuery]
+    metric_intent_confidence: float
+    metric_candidate_count: int
     metric_result: MetricResult
     metric_planning_latency_ms: float
     analytical_result: AnalyticalResult

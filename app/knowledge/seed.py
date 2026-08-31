@@ -114,6 +114,13 @@ def _business_meaning(definition: MetricDefinition) -> str:
     return ". ".join(part for part in parts if part) + "."
 
 
+#: Stable identity for the datasource this deployment already analyses. A
+#: fixed UUID rather than a generated one so bootstrap is idempotent across
+#: restarts and so seeded metrics keep the same owner between runs. Registering
+#: further datasources replaces this default; it does not multiply it.
+DEFAULT_DATA_SOURCE_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
 def registered_metrics_for_default_datasource(
     data_source_id: UUID,
 ) -> list[RegisteredMetric]:

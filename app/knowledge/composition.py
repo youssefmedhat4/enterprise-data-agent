@@ -25,9 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
-
-from app.knowledge.planner import ValidatedMetricPlan
+from typing import Any, Protocol
 
 
 class CompositionError(RuntimeError):
@@ -46,8 +44,23 @@ class MetricResultSlice:
         return tuple(row.get(dimension) for dimension in self.dimensions)
 
 
+class CompositionPlan(Protocol):
+    """What composition needs from a plan: the grain, and which metrics.
+
+    Narrower than `ValidatedMetricPlan`, which satisfies it structurally. The
+    runtime carries governed queries rather than the full validated plan
+    through graph state, and this lets it compose without rebuilding one.
+    """
+
+    @property
+    def dimensions(self) -> tuple[str, ...]: ...
+
+    @property
+    def metric_keys(self) -> tuple[str, ...]: ...
+
+
 def compose(
-    plan: ValidatedMetricPlan,
+    plan: CompositionPlan,
     slices: list[MetricResultSlice],
 ) -> list[dict[str, Any]]:
     """Join per-metric governed results on the requested dimensions.

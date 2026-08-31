@@ -198,6 +198,9 @@ def test_cloud_embeddings_require_an_api_key() -> None:
         ALLOW_CLOUD_DATABASE_DATA=True,
         EMBEDDING_PROVIDER="gemini",
         VERTEXAI_PROJECT="test-project",
+        # Explicitly absent. Settings reads .env, so a developer with a real
+        # key configured would otherwise silently not exercise this path.
+        GEMINI_API_KEY=None,
     )
 
     with pytest.raises(EmbeddingError, match="GEMINI_API_KEY is required"):

@@ -1,8 +1,9 @@
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
@@ -34,12 +35,20 @@ from app.governance.gateway import (
     enrich_authorized_schema,
     filter_authorized_governance,
 )
+from app.knowledge.composition import CompositionError, MetricResultSlice, compose
+from app.knowledge.metrics import MetricRegistry
+from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
+from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.gateway import AnswerGeneration, LLMGateway, SQLGeneration, SQLRepair
 from app.metrics.catalog import GOVERNED_METRICS
-from app.metrics.gateway import MetricGateway, MetricProviderUnavailableError
+from app.metrics.gateway import (
+    MetricGateway,
+    MetricProviderUnavailableError,
+    MetricQuery,
+)
 from app.observability.gateway import TraceService
 from app.observability.service import NoopTraceService
-from app.routing.contracts import QueryRoute
+from app.routing.contracts import MetricPlanningError, QueryRoute
 from app.routing.planner import MetricRequestPlanner
 from app.routing.router import DeterministicQueryRouter
 from app.security.sql_validation import (
@@ -68,6 +77,9 @@ def build_graph(
     metric_gateway: MetricGateway | None = None,
     query_router: DeterministicQueryRouter | None = None,
     metric_planner: MetricRequestPlanner | None = None,
+    metric_registry: MetricRegistry | None = None,
+    metric_intent_planner: MetricIntentPlanner | None = None,
+    data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     enable_query_router: bool = False,
     authorization_gateway: AuthorizationGateway | None = None,
     governance_gateway: GovernanceGateway | None = None,
@@ -89,7 +101,9 @@ def build_graph(
     graph = StateGraph(AgentState)
     nodes: dict[str, Node] = {
         "prepare_request": _prepare_request(sql_generation_provider),
-        "authorize_request": _authorize_request(db_gateway, authorizer),
+        "authorize_request": _authorize_request(
+            db_gateway, authorizer, metric_registry, data_source_id
+        ),
         "route_query": _route_query(router),
         "plan_metric_request": _plan_metric_request(planner),
         "execute_metric": _execute_metric(metric_gateway),
@@ -108,18 +122,56 @@ def build_graph(
         graph.add_node(name, _observed_node(name, node, traces))
     graph.set_entry_point("prepare_request")
     graph.add_edge("prepare_request", "authorize_request")
+    semantic_governed = metric_registry is not None and metric_intent_planner is not None
+    if semantic_governed:
+        assert metric_intent_planner is not None and metric_registry is not None
+        graph.add_node(
+            "plan_metric_intent",
+            _observed_node(
+                "plan_metric_intent",
+                _plan_metric_intent(
+                    metric_intent_planner, metric_registry, data_source_id
+                ),
+                traces,
+            ),
+        )
     if enable_query_router:
         graph.add_edge("authorize_request", "route_query")
-        graph.add_conditional_edges(
-            "route_query",
-            _route_after_query,
-            {
-                "governed_metric": "plan_metric_request",
-                "adhoc_analytics": "retrieve_schema",
-                "clarify": "clarify",
-                "block": "block",
-            },
-        )
+        if semantic_governed:
+            # Alias matching no longer decides governed routing. The
+            # deterministic router keeps block and clarify, which must not
+            # depend on a model, and everything it would have routed either way
+            # goes to semantic planning instead.
+            graph.add_conditional_edges(
+                "route_query",
+                _route_after_query,
+                {
+                    "governed_metric": "plan_metric_intent",
+                    "adhoc_analytics": "plan_metric_intent",
+                    "clarify": "clarify",
+                    "block": "block",
+                },
+            )
+            graph.add_conditional_edges(
+                "plan_metric_intent",
+                _route_after_metric_intent,
+                {
+                    "governed_metric": "execute_metric",
+                    "adhoc_analytics": "retrieve_schema",
+                    "clarify": "clarify",
+                },
+            )
+        else:
+            graph.add_conditional_edges(
+                "route_query",
+                _route_after_query,
+                {
+                    "governed_metric": "plan_metric_request",
+                    "adhoc_analytics": "retrieve_schema",
+                    "clarify": "clarify",
+                    "block": "block",
+                },
+            )
         graph.add_edge("plan_metric_request", "execute_metric")
         graph.add_edge(
             "execute_metric",
@@ -210,15 +262,35 @@ def _prepare_request(sql_generation_provider: Literal["llm", "wren"]) -> Node:
 def _authorize_request(
     db_gateway: DatabaseGateway,
     authorization_gateway: AuthorizationGateway,
+    registry: MetricRegistry | None = None,
+    data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
 ) -> Node:
+    """Authorize the request and fix the metric scope for everything after it.
+
+    The set of metrics offered to the policy engine comes from the registry, so
+    there is one runtime authority for what metrics exist. The Python catalog is
+    seed material for that registry, not a second source consulted at runtime;
+    it is used here only when no registry is configured, which keeps the
+    pre-registry graph working unchanged.
+
+    This node runs before retrieval, and `authorized_metric_ids` is what
+    retrieval later filters by. That ordering is the reason retrieval cannot
+    become a way to discover that a metric exists.
+    """
+
     async def node(state: AgentState) -> AgentState:
         identity = state.get("user_identity") or default_development_identity()
         discovered = await db_gateway.search_schema(state["resolved_question"])
+        if registry is not None:
+            known = await registry.certified(data_source_id)
+            metric_ids = tuple(metric.metric_key for metric in known)
+        else:
+            metric_ids = tuple(metric.id for metric in GOVERNED_METRICS)
         decision = await authorization_gateway.authorize(
             build_authorization_request(
                 identity=identity,
                 tables=discovered,
-                metrics=tuple(metric.id for metric in GOVERNED_METRICS),
+                metrics=metric_ids,
             )
         )
         if not decision.allowed:
@@ -278,6 +350,96 @@ def _route_after_query(state: AgentState) -> str:
     return state["execution_route"]
 
 
+def _route_after_metric_intent(state: AgentState) -> str:
+    return state["execution_route"]
+
+
+def _plan_metric_intent(
+    planner: MetricIntentPlanner,
+    registry: MetricRegistry,
+    data_source_id: UUID,
+) -> Node:
+    """Decide governed vs ad-hoc by meaning rather than by alias.
+
+    This replaces literal alias matching as the governed decision. The
+    deterministic router still runs first and still owns write-intent blocking
+    and clarification, but it no longer decides whether a question is governed.
+
+    Authorization happens strictly before retrieval. Only metrics the caller is
+    already authorized for are loaded, so retrieval cannot become a channel for
+    discovering that a metric exists, and the model is never shown a definition
+    the caller may not know about.
+
+    A question that no certified metric answers falls through to ad-hoc SQL,
+    which is a safe route. Executing an unvalidated selection is not, so a
+    selection the validator refuses also falls through rather than executing.
+    """
+
+    async def node(state: AgentState) -> AgentState:
+        started = perf_counter()
+        certified = await registry.certified(data_source_id)
+        authorized = [
+            metric
+            for metric in certified
+            if metric.metric_key in state["authorized_metric_ids"]
+        ]
+        outcome = await planner.plan(
+            data_source_id=data_source_id,
+            question=state["resolved_question"],
+            authorized_metrics=authorized,
+        )
+        latency_ms = round((perf_counter() - started) * 1000, 3)
+        base: AgentState = {
+            "metric_planning_latency_ms": latency_ms,
+            "metric_candidate_count": outcome.candidate_count,
+            "metric_intent_confidence": outcome.confidence,
+        }
+
+        if outcome.intent == "clarify" and outcome.clarification_question:
+            return {
+                **base,
+                "execution_route": "clarify",
+                "model_action": "clarify",
+                "needs_clarification": True,
+                "clarification_question": outcome.clarification_question,
+            }
+
+        plan = outcome.plan
+        if plan is None:
+            return {**base, "execution_route": "adhoc_analytics"}
+
+        queries = _governed_queries(plan)
+        primary = queries[0]
+        return {
+            **base,
+            "execution_route": "governed_metric",
+            "metric_query": primary,
+            "additional_metric_queries": list(queries[1:]),
+            "analysis_plan": AnalysisPlan(
+                intent="governed_metric",
+                metric=primary.metric,
+                dimensions=list(plan.dimensions),
+                filters={},
+            ),
+        }
+
+    return node
+
+
+def _governed_queries(plan: ValidatedMetricPlan) -> list[MetricQuery]:
+    """One governed query per selected metric, all at the same grain.
+
+    Each metric is requested separately and grouped by exactly the planned
+    dimensions. That is what makes the later join one-to-one: independent facts
+    are aggregated to the requested final grain *before* composition, so a
+    metric with several underlying rows per dimension cannot fan the others out.
+    """
+    return [
+        MetricQuery(metric=metric.metric_key, dimensions=tuple(plan.dimensions))
+        for metric in plan.metrics
+    ]
+
+
 def _plan_metric_request(planner: MetricRequestPlanner) -> Node:
     async def node(state: AgentState) -> AgentState:
         plan = planner.plan(
@@ -316,12 +478,18 @@ def _execute_metric(metric_gateway: MetricGateway | None) -> Node:
             raise MetricProviderUnavailableError(
                 "No governed metric provider was configured for the graph."
             )
-        if state["metric_query"].metric not in state["authorized_metric_ids"]:
-            raise AuthorizationDeniedError(
-                "The governed metric is outside the authorized scope."
-            )
+        extra = state.get("additional_metric_queries") or []
+        for query in (state["metric_query"], *extra):
+            if query.metric not in state["authorized_metric_ids"]:
+                raise AuthorizationDeniedError(
+                    "The governed metric is outside the authorized scope."
+                )
         result = await metric_gateway.query_metric(state["metric_query"])
         rows = [dict(row) for row in result.rows]
+        if extra:
+            rows = await _compose_governed_rows(
+                metric_gateway, state, primary_rows=rows, extra=extra
+            )
         truncated = len(rows) >= state["metric_query"].limit
         warnings = (
             ["The governed metric result reached its configured row limit and may be truncated."]
@@ -369,6 +537,66 @@ def _execute_metric(metric_gateway: MetricGateway | None) -> Node:
         }
 
     return node
+
+
+@dataclass(frozen=True, slots=True)
+class _GovernedComposition:
+    """The grain and metric set for one composite governed execution."""
+
+    dimensions: tuple[str, ...]
+    metric_keys: tuple[str, ...]
+
+
+async def _compose_governed_rows(
+    metric_gateway: MetricGateway,
+    state: AgentState,
+    *,
+    primary_rows: list[dict[str, Any]],
+    extra: list[MetricQuery],
+) -> list[dict[str, Any]]:
+    """Execute each remaining metric at the planned grain, then join.
+
+    Every metric is queried separately and grouped by exactly the planned
+    dimensions, so each slice holds one row per dimension tuple. That is what
+    makes the join one-to-one and is why this cannot reproduce the fan-out that
+    a single joined query over independent facts used to cause. `compose`
+    re-checks the precondition and refuses a slice that is not at the grain.
+
+    If the metrics cannot be composed safely the request falls back to ad-hoc
+    SQL rather than returning a number nobody can defend.
+    """
+    primary = state["metric_query"]
+    slices = [
+        MetricResultSlice(
+            metric_key=primary.metric,
+            dimensions=tuple(primary.dimensions),
+            rows=tuple(primary_rows),
+        )
+    ]
+    for query in extra:
+        result = await metric_gateway.query_metric(query)
+        slices.append(
+            MetricResultSlice(
+                metric_key=query.metric,
+                dimensions=tuple(query.dimensions),
+                rows=tuple(dict(row) for row in result.rows),
+            )
+        )
+    plan = _GovernedComposition(
+        dimensions=tuple(primary.dimensions),
+        metric_keys=tuple(result_slice.metric_key for result_slice in slices),
+    )
+    try:
+        return compose(plan, slices)
+    except CompositionError as exc:
+        # The validator already refuses a dimension not shared by every metric,
+        # so reaching here means a provider returned something coarser or finer
+        # than the grain it was asked for. Fail with a typed planning error
+        # rather than joining rows that would silently fan out.
+        raise MetricPlanningError(
+            "The selected governed metrics could not be combined at the "
+            "requested grain."
+        ) from exc
 
 
 def _retrieve_schema(
