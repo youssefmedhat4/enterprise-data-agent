@@ -77,7 +77,12 @@ from app.security.sql_validation import (
     SQLValidationError,
     SQLValidator,
 )
-from app.semantic.entities import normalize_value, tables_for_question
+from app.semantic.entities import (
+    EntityIdentity,
+    confirmed_identities,
+    normalize_value,
+    tables_for_question,
+)
 from app.semantic.entity_values import EntityValueGateway
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
@@ -141,7 +146,9 @@ def build_graph(
         "plan_metric_request": _plan_metric_request(planner),
         "execute_metric": _execute_metric(metric_gateway),
         "retrieve_schema": _retrieve_schema(semantics, governance, semantic_model),
-        "generate_sql": _generate_sql(llm_gateway, guidance_store, data_source_id),
+        "generate_sql": _generate_sql(
+            llm_gateway, guidance_store, data_source_id, semantic_model
+        ),
         "clarify": _clarify(db_gateway),
         "block": _block(db_gateway),
         "validate_sql": _validate_sql(sql_validator),
@@ -1099,6 +1106,7 @@ def _generate_sql(
     llm_gateway: LLMGateway,
     guidance: InMemoryGuidanceStore | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
+    semantic_model: SemanticModel | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         examples, instructions = await _reasoning_guidance(
@@ -1117,6 +1125,11 @@ def _generate_sql(
                 approved_examples=examples,
                 business_instructions=instructions,
                 resolved_entities=state.get("resolved_entity_context", []),
+                entity_identities=(
+                    confirmed_identities(semantic_model)
+                    if semantic_model is not None
+                    else ()
+                ),
             ),
             response_model=SQLGeneration,
         )
@@ -1766,6 +1779,7 @@ def _sql_user_prompt(
     approved_examples: list[ApprovedQueryExample] | None = None,
     business_instructions: list[BusinessInstruction] | None = None,
     resolved_entities: list[dict[str, str]] | None = None,
+    entity_identities: tuple[EntityIdentity, ...] = (),
 ) -> str:
     schema_lines = [_format_table_metadata(table) for table in metadata]
     schema_context = "\n".join(schema_lines)
@@ -1798,6 +1812,23 @@ def _sql_user_prompt(
         f"Business semantic context:\n{semantic_context}",
         f"Authorized governance context:\n{governance_context}",
     ]
+    if entity_identities:
+        identity_lines = "\n".join(
+            f"- {identity.entity_name}: identified by {identity.canonical_column}"
+            + (
+                f"; labelled by {', '.join(identity.display_columns)}"
+                if identity.display_columns
+                else ""
+            )
+            for identity in entity_identities
+        )
+        sections.append(
+            "Reviewed entity identity for this database. Group, join and count by "
+            "the identifying column: two rows can share a display label and still "
+            "be different things, and grouping by the label merges them into one. "
+            "Show the label as well where it helps a reader:\n"
+            f"{identity_lines}"
+        )
     if resolved_entities:
         identities = "\n".join(
             "- {entity}: canonical {canonical_column}={canonical_key!r}; "

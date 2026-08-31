@@ -109,6 +109,18 @@ class GroundingValidator:
             for value in row.values()
             if (normalized := _normalized_number(value)) is not None
         }
+        # Numerals *inside* result text -- "Project 003", "Q3 2024", "Region 5".
+        # Naming such a row back to the user quotes the result; it does not
+        # invent anything. Counting only wholly numeric values meant listing
+        # the projects that matched a question failed as an unsupported claim.
+        supported |= {
+            number
+            for row in rows
+            for value in row.values()
+            if isinstance(value, str)
+            for fragment in _PROSE_NUMERAL.findall(value)
+            if (number := _normalized_number(fragment)) is not None
+        }
         row_count = len(rows)
         for numeric_index, match in enumerate(_PROSE_NUMERAL.finditer(answer)):
             raw = match.group(0)

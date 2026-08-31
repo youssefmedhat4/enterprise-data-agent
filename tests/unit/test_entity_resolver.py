@@ -3,7 +3,11 @@ from uuid import uuid4
 from app.data.gateway import ColumnMetadata, TableMetadata
 from app.knowledge.contracts import ApprovalStatus, SemanticAttribute, SemanticEntity
 from app.knowledge.discovery import SemanticModel
-from app.semantic.entities import EntityResolver, normalize_value
+from app.semantic.entities import (
+    EntityResolver,
+    confirmed_identities,
+    normalize_value,
+)
 
 
 def table(
@@ -406,3 +410,33 @@ def test_name_heuristic_alone_cannot_resolve_that_concept() -> None:
     )
 
     assert resolution.is_unresolved
+
+
+def test_confirmed_identities_separate_the_key_from_the_label() -> None:
+    """Two units sharing a display label must stay two units.
+
+    Grouping by the label merges distinct entities into one row, and the answer
+    reads perfectly while being wrong. The review already records which
+    attribute identifies an entity; this is what makes that usable downstream.
+    """
+    identities = confirmed_identities(semantic_model())
+
+    assert [item.entity_name for item in identities] == ["Organizational Unit"]
+    assert identities[0].canonical_column == "analytics.business_units.unit_id"
+    assert identities[0].display_columns == ("analytics.business_units.unit_name",)
+
+
+def test_an_unreviewed_label_is_not_offered_as_one() -> None:
+    """Nothing is asserted about identity that a reviewer did not confirm."""
+    identities = confirmed_identities(
+        semantic_model(label_status=ApprovalStatus.PROPOSED)
+    )
+
+    assert identities[0].canonical_column == "analytics.business_units.unit_id"
+    assert identities[0].display_columns == ()
+
+
+def test_an_unconfirmed_entity_has_no_identity() -> None:
+    assert confirmed_identities(
+        semantic_model(entity_status=ApprovalStatus.PROPOSED)
+    ) == ()

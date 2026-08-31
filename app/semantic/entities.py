@@ -140,6 +140,50 @@ def sampleable_columns(model: SemanticModel) -> tuple[str, ...]:
     return tuple(sorted(set(columns)))
 
 
+@dataclass(frozen=True, slots=True)
+class EntityIdentity:
+    """What identifies one confirmed entity, and what merely labels it."""
+
+    entity_name: str
+    canonical_column: str
+    display_columns: tuple[str, ...]
+
+
+def confirmed_identities(model: SemanticModel) -> tuple[EntityIdentity, ...]:
+    """Identifying columns for each confirmed entity, with its labels.
+
+    Grouping by a display label silently merges distinct entities that happen
+    to share a name -- two organisational units both called "Operations" become
+    one row, and the answer is wrong in a way that reads perfectly. The review
+    already records which attribute identifies an entity; saying so out loud is
+    what lets SQL be written against identity rather than spelling.
+    """
+    entities = {entity.id: entity for entity in model.confirmed_entities()}
+    keys: dict[UUID, str] = {}
+    labels: dict[UUID, list[str]] = {}
+    for attribute in model.confirmed_attributes():
+        entity = entities.get(attribute.entity_id)
+        if entity is None:
+            continue
+        qualified = (
+            f"{entity.source_schema}.{entity.source_table}.{attribute.source_column}"
+        )
+        if attribute.is_identifier:
+            keys.setdefault(attribute.entity_id, qualified)
+        else:
+            labels.setdefault(attribute.entity_id, []).append(qualified)
+
+    identities = [
+        EntityIdentity(
+            entity_name=entities[entity_id].entity_name,
+            canonical_column=canonical,
+            display_columns=tuple(sorted(labels.get(entity_id, ()))),
+        )
+        for entity_id, canonical in keys.items()
+    ]
+    return tuple(sorted(identities, key=lambda item: item.entity_name))
+
+
 def confirmed_bindings(model: SemanticModel, concept: str) -> tuple[ConceptBinding, ...]:
     """Columns backing `concept`, from confirmed semantic mappings only.
 
