@@ -38,6 +38,11 @@ from app.governance.gateway import (
 )
 from app.knowledge.composition import CompositionError, MetricResultSlice, compose
 from app.knowledge.fingerprints import adhoc_fingerprint, governed_fingerprint
+from app.knowledge.guidance import (
+    ApprovedQueryExample,
+    BusinessInstruction,
+    InMemoryGuidanceStore,
+)
 from app.knowledge.memory import QuestionEvent, QuestionMemory
 from app.knowledge.metrics import MetricRegistry
 from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
@@ -85,6 +90,7 @@ def build_graph(
     metric_registry: MetricRegistry | None = None,
     metric_intent_planner: MetricIntentPlanner | None = None,
     question_memory: QuestionMemory | None = None,
+    guidance_store: InMemoryGuidanceStore | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     enable_query_router: bool = False,
     authorization_gateway: AuthorizationGateway | None = None,
@@ -114,7 +120,7 @@ def build_graph(
         "plan_metric_request": _plan_metric_request(planner),
         "execute_metric": _execute_metric(metric_gateway),
         "retrieve_schema": _retrieve_schema(semantics, governance),
-        "generate_sql": _generate_sql(llm_gateway),
+        "generate_sql": _generate_sql(llm_gateway, guidance_store, data_source_id),
         "clarify": _clarify(db_gateway),
         "block": _block(db_gateway),
         "validate_sql": _validate_sql(sql_validator),
@@ -678,8 +684,15 @@ def _semantic_item_is_authorized(
     return all(allowed[table] == discovered_columns.get(table, set()) for table in tables)
 
 
-def _generate_sql(llm_gateway: LLMGateway) -> Node:
+def _generate_sql(
+    llm_gateway: LLMGateway,
+    guidance: InMemoryGuidanceStore | None = None,
+    data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
+) -> Node:
     async def node(state: AgentState) -> AgentState:
+        examples, instructions = await _reasoning_guidance(
+            guidance, state, data_source_id
+        )
         response = await llm_gateway.generate_structured(
             model_alias="sql-reasoner",
             system=_sql_system_prompt(),
@@ -690,6 +703,8 @@ def _generate_sql(llm_gateway: LLMGateway) -> Node:
                 state.get("semantic_measures", []),
                 state.get("analytical_context"),
                 state.get("governance_snapshot", GovernanceSnapshot(provider="disabled")),
+                approved_examples=examples,
+                business_instructions=instructions,
             ),
             response_model=SQLGeneration,
         )
@@ -710,6 +725,42 @@ def _generate_sql(llm_gateway: LLMGateway) -> Node:
         return update
 
     return node
+
+
+async def _reasoning_guidance(
+    guidance: InMemoryGuidanceStore | None,
+    state: AgentState,
+    data_source_id: UUID,
+) -> tuple[list[ApprovedQueryExample], list[BusinessInstruction]]:
+    """Reviewed context for SQL reasoning, filtered to what the caller may see.
+
+    Examples are restricted to those whose tables are all inside the authorized
+    schema. Returning one that touches a table the caller cannot read would
+    reveal that the table exists, turning approved knowledge into an
+    authorization side channel.
+
+    Retrieval failures are swallowed: guidance improves an answer, and losing it
+    is better than failing a request that can still be answered without it.
+    """
+    if guidance is None:
+        return [], []
+    authorized = frozenset(
+        f"{table.schema_name}.{table.table_name}".strip(".").casefold()
+        for table in state.get("available_metadata", [])
+    )
+    try:
+        examples = await guidance.relevant_examples(
+            data_source_id,
+            state["resolved_question"],
+            authorized_tables=authorized,
+        )
+        instructions = await guidance.relevant_instructions(
+            data_source_id, state["resolved_question"]
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("guidance retrieval failed: %s", type(exc).__name__)
+        return [], []
+    return examples, instructions
 
 
 def _route_after_sql_generation(state: AgentState) -> str:
@@ -1268,6 +1319,8 @@ def _sql_user_prompt(
     measures: list[SemanticMeasure],
     context: AnalyticalContext | None,
     governance: GovernanceSnapshot,
+    approved_examples: list[ApprovedQueryExample] | None = None,
+    business_instructions: list[BusinessInstruction] | None = None,
 ) -> str:
     schema_lines = [_format_table_metadata(table) for table in metadata]
     schema_context = "\n".join(schema_lines)
@@ -1295,13 +1348,35 @@ def _sql_user_prompt(
         governance,
         {table.identifier for table in metadata},
     )
-    return (
-        f"Schema context:\n{schema_context}\n\n"
-        f"Business semantic context:\n{semantic_context}\n\n"
-        f"Authorized governance context:\n{governance_context}\n\n"
-        f"Previous structured analytical context:\n{analytical_context}\n\n"
-        f"Current question: {question}"
-    )
+    sections = [
+        f"Schema context:\n{schema_context}",
+        f"Business semantic context:\n{semantic_context}",
+        f"Authorized governance context:\n{governance_context}",
+    ]
+    if business_instructions:
+        rules = "\n".join(
+            f"- {instruction.title}: {instruction.instruction}"
+            for instruction in business_instructions
+        )
+        sections.append(
+            "Approved business definitions. These are reviewed and authoritative "
+            f"for this database; follow them where they apply:\n{rules}"
+        )
+    if approved_examples:
+        shown = "\n\n".join(
+            f"Question: {example.question}\nSQL that answered it:\n"
+            f"{example.query_pattern}"
+            for example in approved_examples
+        )
+        sections.append(
+            "Previously approved examples from this same database, for reference "
+            "only. Write SQL for the current question; do not copy these verbatim, "
+            "and do not assume they are still valid -- every statement you produce "
+            f"is validated independently:\n{shown}"
+        )
+    sections.append(f"Previous structured analytical context:\n{analytical_context}")
+    sections.append(f"Current question: {question}")
+    return "\n\n".join(sections)
 
 
 def _format_table_metadata(table: TableMetadata) -> str:
