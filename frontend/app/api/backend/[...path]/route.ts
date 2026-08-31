@@ -13,7 +13,13 @@ const BACKEND_ORIGIN = (
 ).replace(/\/$/, "");
 
 /** Only these paths are proxied. The route is not an open relay. */
-const ALLOWED_PATHS = ["analytics/query", "health", "health/live", "health/ready"];
+const ALLOWED_PATHS = [
+  "analytics/query",
+  "health",
+  "health/live",
+  "health/ready",
+  "knowledge/connection-refs",
+];
 
 /**
  * Knowledge administration paths, matched by shape rather than listed one by
@@ -23,7 +29,7 @@ const ALLOWED_PATHS = ["analytics/query", "health", "health/live", "health/ready
  * general tunnel to it.
  */
 const KNOWLEDGE_PATH =
-  /^knowledge\/data-sources(\/[0-9a-f-]{36}\/(semantics|clusters|candidates|metrics|examples)(\/[0-9a-f-]{36}\/review)?)?$/;
+  /^knowledge\/data-sources(\/[0-9a-f-]{36}\/(semantics|clusters|candidates|metrics|examples|scan|reindex)(\/[0-9a-f-]{36}\/review)?)?$/;
 
 function isAllowed(target: string): boolean {
   return ALLOWED_PATHS.includes(target) || KNOWLEDGE_PATH.test(target);

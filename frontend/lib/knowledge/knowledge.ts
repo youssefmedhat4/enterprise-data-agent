@@ -293,3 +293,69 @@ export async function scanDataSource(
     },
   };
 }
+
+
+/** Connection reference names a reviewer may register against. Names only. */
+export async function fetchConnectionRefs(): Promise<string[]> {
+  const response = await fetch(`${BASE}/connection-refs`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) return [];
+  const payload: unknown = await response.json();
+  return Array.isArray(payload)
+    ? payload.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+/**
+ * Register a datasource.
+ *
+ * There is deliberately no credential parameter. `connectionRef` must be one
+ * of the names the server returned; a DSN or password has no way in.
+ */
+export async function registerDataSource(input: {
+  name: string;
+  databaseType: string;
+  connectionRef: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${BASE}/data-sources`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      name: input.name,
+      database_type: input.databaseType,
+      connection_ref: input.connectionRef,
+    }),
+  });
+  if (response.ok) return { ok: true, message: "Data source registered." };
+  const payload: unknown = await response.json().catch(() => null);
+  const detail =
+    payload !== null && typeof payload === "object" && "detail" in payload
+      ? String((payload as { detail: unknown }).detail)
+      : "The data source could not be registered.";
+  return { ok: false, message: detail };
+}
+
+export async function reindexDataSource(
+  dataSourceId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${BASE}/data-sources/${dataSourceId}/reindex`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      payload !== null && typeof payload === "object" && "detail" in payload
+        ? String((payload as { detail: unknown }).detail)
+        : "The reindex could not be completed.";
+    return { ok: false, message: detail };
+  }
+  const raw = (payload ?? {}) as Record<string, unknown>;
+  return {
+    ok: true,
+    message:
+      `Reindexed ${num(raw.documents_indexed)} documents with ` +
+      `${str(raw.embedding_model)} (${num(raw.embedding_dimension)}d).`,
+  };
+}

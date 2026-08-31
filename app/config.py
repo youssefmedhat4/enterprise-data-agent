@@ -288,6 +288,22 @@ class Settings(BaseSettings):
     #: shape; `memory` exists for development and tests. There is deliberately
     #: no automatic downgrade between them: silently losing persistence would
     #: let learning state diverge per worker while the API kept serving.
+    #: Whether this process drains the knowledge generation queue. Off by
+    #: default: generation calls a model, and starting to spend quota is an
+    #: operator decision rather than something that begins on upgrade.
+    knowledge_worker_enabled: bool = Field(
+        default=False,
+        alias="KNOWLEDGE_WORKER_ENABLED",
+    )
+    #: Seconds between polls. Conservative: the queue receives one job per
+    #: cluster crossing a threshold, so frequent polling would spend far more
+    #: on empty checks than the work is worth.
+    knowledge_worker_poll_seconds: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=3600.0,
+        alias="KNOWLEDGE_WORKER_POLL_SECONDS",
+    )
     #: Connection references a reviewer may register a datasource against.
     #: An allowlist rather than free text: without it, registration would let
     #: an admin name any environment variable and have its value used as a

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,6 +48,9 @@ function mockApi(semantics: unknown[] = [], status = 200) {
     });
     if (status !== 200) {
       return { ok: false, status, json: async () => ({ detail: "denied" }) };
+    }
+    if (url.includes("/connection-refs")) {
+      return { ok: true, status: 200, json: async () => ["DATABASE_URL"] };
     }
     if (url.includes("/semantics") && (init?.method ?? "GET") === "GET") {
       return { ok: true, status: 200, json: async () => semantics };
@@ -189,5 +192,77 @@ describe("Authorization", () => {
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
     expect(await screen.findByText(/Review authority required/)).toBeTruthy();
+  });
+});
+
+
+describe("Data source registration", () => {
+  it("offers only server-supplied connections, never a credential field", async () => {
+    mockApi([]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Add data source/ }),
+    );
+
+    const connection = await screen.findByLabelText("Connection");
+    expect(connection.tagName).toBe("SELECT");
+    // A free-text box here would let someone paste a DSN.
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
+    expect(screen.queryByLabelText(/dsn/i)).toBeNull();
+    expect(
+      within(connection as HTMLSelectElement).getByRole("option", {
+        name: "DATABASE_URL",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("registers with the chosen reference and no credential", async () => {
+    const calls = mockApi([]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Add data source/ }),
+    );
+    await userEvent.type(await screen.findByLabelText("Name"), "EU Warehouse");
+    await userEvent.click(screen.getByRole("button", { name: "Register" }));
+
+    await waitFor(() => {
+      const post = calls.find(
+        (call) => call.method === "POST" && call.url.endsWith("/data-sources"),
+      );
+      expect(post).toBeTruthy();
+      const body = post?.body as Record<string, unknown>;
+      expect(body.name).toBe("EU Warehouse");
+      expect(body.connection_ref).toBe("DATABASE_URL");
+      expect(JSON.stringify(body)).not.toContain("://");
+      expect(Object.keys(body)).not.toContain("password");
+    });
+  });
+});
+
+describe("Semantic reindex", () => {
+  it("calls the reindex endpoint for the data source", async () => {
+    const calls = mockApi([]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reindex semantic search/ }),
+    );
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.endsWith("/reindex"))).toBe(true);
+    });
+  });
+
+  it("reports the outcome to the reviewer", async () => {
+    mockApi([]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reindex semantic search/ }),
+    );
+
+    expect(await screen.findByRole("status")).toBeTruthy();
   });
 });

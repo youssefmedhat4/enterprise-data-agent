@@ -333,6 +333,53 @@ async def scan_data_source(
     )
 
 
+class ReindexSummaryView(StrictPayload):
+    data_source_id: UUID
+    documents_indexed: int
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimension: int
+
+
+@router.post("/data-sources/{data_source_id}/reindex")
+async def reindex_data_source(
+    data_source_id: UUID,
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ReindexSummaryView:
+    """Rebuild semantic retrieval with the currently configured embedder.
+
+    Needed after the embedding provider or model changes: vectors from
+    different models are not comparable, so the old ones become unusable rather
+    than merely stale. Relational definitions are the authority and are not
+    touched -- only the vectors derived from them are regenerated.
+
+    Deliberately explicit rather than automatic on startup: re-embedding every
+    document costs real quota, and doing it silently on each restart would spend
+    it repeatedly for nothing.
+    """
+    # Embedding metric documents sends database-derived text to a cloud model.
+    settings.validate_cloud_data_for_models(
+        settings.resolve_model_profile(DEFAULT_MODEL_PROFILE).model_aliases.values()
+    )
+    try:
+        result = await knowledge.reindex(data_source_id)
+    except Exception as exc:
+        # Type only: a provider message can echo the text that was embedded.
+        raise HTTPException(
+            status_code=502,
+            detail=f"The reindex could not be completed ({type(exc).__name__}).",
+        ) from exc
+    return ReindexSummaryView(
+        data_source_id=result.data_source_id,
+        documents_indexed=result.documents_indexed,
+        embedding_provider=result.embedding_provider,
+        embedding_model=result.embedding_model,
+        embedding_dimension=result.embedding_dimension,
+    )
+
+
 @router.get("/data-sources", response_model=list[DataSourceSummary])
 async def list_data_sources(
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],

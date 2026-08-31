@@ -51,6 +51,17 @@ class SemanticRepository(Protocol):
     async def save(self, model: Any) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ReindexResult:
+    """What a reindex regenerated, and with which embedder."""
+
+    data_source_id: UUID
+    documents_indexed: int
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimension: int
+
+
 @dataclass(slots=True)
 class KnowledgeRuntime:
     """Every knowledge collaborator a request may need, already constructed."""
@@ -68,15 +79,27 @@ class KnowledgeRuntime:
 
     async def reindex(
         self, data_source_id: UUID = DEFAULT_DATA_SOURCE_ID
-    ) -> None:
-        """Rebuild retrieval for one datasource.
+    ) -> ReindexResult:
+        """Rebuild retrieval for one datasource with the current embedder.
 
-        Called after a metric is certified, deprecated or edited. Without it a
-        newly certified metric would stay invisible until restart, and a
-        deprecated one would keep being retrieved.
+        Called after a metric is certified, deprecated or edited -- without it a
+        newly certified metric stays invisible until restart and a deprecated
+        one keeps being retrieved -- and explicitly by an administrator after
+        the embedding provider or model changes.
+
+        Vectors from different models are not comparable, so a provider change
+        leaves the old ones unusable rather than merely stale. This regenerates
+        them from the relational definitions, which are the authority; no
+        business definition is altered, only the vectors derived from it.
         """
-        await self.retriever.index(
-            data_source_id, await self.registry.certified(data_source_id)
+        metrics = await self.registry.certified(data_source_id)
+        await self.retriever.index(data_source_id, metrics)
+        return ReindexResult(
+            data_source_id=data_source_id,
+            documents_indexed=len(metrics),
+            embedding_provider=self.retriever.embedding_provider,
+            embedding_model=self.retriever.embedding_model,
+            embedding_dimension=self.retriever.embedding_dimension,
         )
 
     async def close(self) -> None:
@@ -175,5 +198,6 @@ async def _seed_default_metrics(
 __all__ = [
     "KnowledgeDatabaseError",
     "KnowledgeRuntime",
+    "ReindexResult",
     "build_knowledge_runtime",
 ]

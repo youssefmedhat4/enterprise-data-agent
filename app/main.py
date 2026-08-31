@@ -12,6 +12,7 @@ from app.api.routes import router
 from app.config import get_settings
 from app.errors import ApplicationError, ErrorCode, ErrorDetail, ErrorResponse
 from app.knowledge.runtime import build_knowledge_runtime
+from app.knowledge.worker import build_worker
 from app.observability.factory import build_trace_service
 
 
@@ -24,10 +25,19 @@ async def _knowledge_lifespan(app: FastAPI) -> AsyncIterator[None]:
     reviewers would approve metrics that vanish and workers would learn
     different things.
     """
-    app.state.knowledge = await build_knowledge_runtime(get_settings())
+    settings = get_settings()
+    app.state.knowledge = await build_knowledge_runtime(settings)
+    # Generation runs here rather than on a request, so no user waits on a
+    # model call they did not ask for.
+    app.state.knowledge_worker = await build_worker(settings, app.state.knowledge)
+    if app.state.knowledge_worker is not None:
+        await app.state.knowledge_worker.start()
     try:
         yield
     finally:
+        worker = getattr(app.state, "knowledge_worker", None)
+        if worker is not None:
+            await worker.stop()
         runtime = getattr(app.state, "knowledge", None)
         if runtime is not None:
             await runtime.close()

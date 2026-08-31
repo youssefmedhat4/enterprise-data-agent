@@ -11,7 +11,9 @@ import {
   Lightbulb,
   RefreshCw,
   Repeat,
+  Plus,
   Shapes,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -27,9 +29,12 @@ import {
   fetchCandidates,
   fetchCertifiedMetrics,
   fetchClusters,
+  fetchConnectionRefs,
   fetchQueryExamples,
   fetchSemantics,
   KnowledgeAccessError,
+  registerDataSource,
+  reindexDataSource,
   reviewCandidate,
   reviewSemantic,
   scanDataSource,
@@ -43,6 +48,8 @@ import {
 interface KnowledgeConsoleProps {
   dataSourceId?: string;
   dataSources?: readonly DataSourceSummary[];
+  /** Lets the workspace refresh its selector after a registration. */
+  onDataSourcesChanged?: () => Promise<void> | void;
 }
 
 /**
@@ -55,6 +62,7 @@ interface KnowledgeConsoleProps {
 export function KnowledgeConsole({
   dataSourceId = DEFAULT_DATA_SOURCE_ID,
   dataSources = [DEFAULT_DATA_SOURCE],
+  onDataSourcesChanged,
 }: KnowledgeConsoleProps) {
   const [clusters, setClusters] = useState<KnowledgeCluster[]>([]);
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
@@ -62,6 +70,13 @@ export function KnowledgeConsole({
   const [examples, setExamples] = useState<QueryExample[]>([]);
   const [semantics, setSemantics] = useState<SemanticProposal[]>([]);
   const [editing, setEditing] = useState<Record<string, string>>({});
+  const [connectionRefs, setConnectionRefs] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    databaseType: "postgres",
+    connectionRef: "",
+  });
   const [denied, setDenied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -99,6 +114,17 @@ export function KnowledgeConsole({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void fetchConnectionRefs().then((refs) => {
+      setConnectionRefs(refs);
+      setForm((current) =>
+        current.connectionRef === "" && refs.length > 0
+          ? { ...current, connectionRef: refs[0] }
+          : current,
+      );
+    });
+  }, []);
 
   const review = useCallback(
     async (candidateId: string, action: "approve" | "reject") => {
@@ -146,6 +172,29 @@ export function KnowledgeConsole({
     setBusyId(null);
     await load();
   }, [dataSourceId, load]);
+
+  const register = useCallback(async () => {
+    setBusyId("register");
+    const result = await registerDataSource(form);
+    setNotice(result.message);
+    setBusyId(null);
+    if (result.ok) {
+      setAdding(false);
+      setForm({ name: "", databaseType: "postgres", connectionRef: form.connectionRef });
+      await onDataSourcesChanged?.();
+    }
+    await load();
+  }, [form, load, onDataSourcesChanged]);
+
+  const reindex = useCallback(
+    async (id: string) => {
+      setBusyId(`reindex-${id}`);
+      const result = await reindexDataSource(id);
+      setNotice(result.message);
+      setBusyId(null);
+    },
+    [],
+  );
 
   const proposals = semantics.filter((item) => item.status === "PROPOSED");
   const confirmed = semantics.filter(
@@ -208,6 +257,111 @@ export function KnowledgeConsole({
 
         {/* --------------------------------------------------- data sources */}
         <TabsContent value="sources" className="mt-4 space-y-3">
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              variant={adding ? "ghost" : "outline"}
+              onClick={() => setAdding((current) => !current)}
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              {adding ? "Cancel" : "Add data source"}
+            </Button>
+          </div>
+
+          {adding ? (
+            <form
+              aria-label="Add data source"
+              className="space-y-3 rounded-lg border border-border p-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void register();
+              }}
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label
+                    htmlFor="ds-name"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Name
+                  </label>
+                  <input
+                    id="ds-name"
+                    required
+                    value={form.name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="ds-type"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Database type
+                  </label>
+                  <select
+                    id="ds-type"
+                    value={form.databaseType}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        databaseType: event.target.value,
+                      }))
+                    }
+                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                  >
+                    <option value="postgres">postgres</option>
+                  </select>
+                </div>
+                <div>
+                  <label
+                    htmlFor="ds-connection"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Connection
+                  </label>
+                  {/* A choice, never free text: the server decides which
+                      references exist, so no DSN or password can be typed. */}
+                  <select
+                    id="ds-connection"
+                    required
+                    value={form.connectionRef}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        connectionRef: event.target.value,
+                      }))
+                    }
+                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                  >
+                    {connectionRefs.map((ref) => (
+                      <option key={ref} value={ref}>
+                        {ref}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Connections are configured on the server. Credentials are never
+                entered here and are never sent from the browser.
+              </p>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={busyId === "register" || connectionRefs.length === 0}
+              >
+                Register
+              </Button>
+            </form>
+          ) : null}
+
           {dataSources.map((entry) => (
             <article
               key={entry.id}
@@ -233,6 +387,15 @@ export function KnowledgeConsole({
                   >
                     <RefreshCw className="size-3.5" aria-hidden="true" />
                     {entry.lastScannedAt === null ? "Scan" : "Rescan"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busyId !== null}
+                    onClick={() => void reindex(entry.id)}
+                  >
+                    <Sparkles className="size-3.5" aria-hidden="true" />
+                    Reindex semantic search
                   </Button>
                 </div>
               </div>

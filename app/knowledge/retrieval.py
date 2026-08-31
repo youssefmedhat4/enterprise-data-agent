@@ -95,6 +95,19 @@ class MetricRetriever:
         self._documents: dict[UUID, list[_IndexedDocument]] = {}
         self._document_frequency: dict[UUID, dict[str, int]] = {}
 
+    @property
+    def embedding_provider(self) -> str:
+        """Recorded with a reindex so incompatible vectors stay identifiable."""
+        return self._embeddings.provider
+
+    @property
+    def embedding_model(self) -> str:
+        return self._embeddings.model
+
+    @property
+    def embedding_dimension(self) -> int:
+        return self._embeddings.dimension
+
     async def index(
         self, data_source_id: UUID, metrics: list[RegisteredMetric]
     ) -> None:
