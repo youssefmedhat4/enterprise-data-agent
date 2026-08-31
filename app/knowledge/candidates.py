@@ -25,13 +25,14 @@ of failures can never argue itself into a certified definition.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.knowledge.expressions import (
     ExpressionError,
@@ -76,8 +77,39 @@ class CandidateReviewError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+#: Free text in a proposal is bounded. A model that falls into a repetition
+#: loop on an unbounded prose field spends the whole output budget on it and
+#: the JSON arrives truncated, which surfaces as "invalid structured response"
+#: and sends the reader looking for a bad schema. A cap turns that into a
+#: validation failure that says what actually happened, and keeps one bad
+#: generation from being expensive. Generous enough that no honest proposal
+#: ever reaches it.
+MAX_PROPOSAL_PROSE = 2000
+MAX_PROPOSAL_REASON = 1000
+
+#: Same reasoning as the expression node tags: which proposal this is, is
+#: already decided by its fields.
+_TYPE_BY_FIELD = (
+    ("expression", "METRIC"),
+    ("question", "QUERY_EXAMPLE"),
+    ("instruction", "BUSINESS_RULE"),
+)
+
+
 class StrictProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _candidate_type_follows_shape(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        for name, candidate_type in _TYPE_BY_FIELD:
+            if name in data:
+                if data.get("candidate_type") == candidate_type:
+                    return data
+                return {**data, "candidate_type": candidate_type}
+        return data
 
 
 class MetricProposal(StrictProposal):
@@ -91,8 +123,8 @@ class MetricProposal(StrictProposal):
     candidate_type: Literal["METRIC"] = "METRIC"
     metric_key: str = Field(min_length=1, max_length=100)
     display_name: str = Field(min_length=1, max_length=200)
-    description: str = ""
-    business_meaning: str = ""
+    description: str = Field(default="", max_length=MAX_PROPOSAL_PROSE)
+    business_meaning: str = Field(default="", max_length=MAX_PROPOSAL_PROSE)
     expression: ExpressionNode
     grain: str | None = None
     unit: str | None = None
@@ -102,14 +134,14 @@ class MetricProposal(StrictProposal):
 class QueryExampleProposal(StrictProposal):
     candidate_type: Literal["QUERY_EXAMPLE"] = "QUERY_EXAMPLE"
     display_name: str = Field(min_length=1, max_length=200)
-    question: str = Field(min_length=1)
-    semantic_plan: str = ""
+    question: str = Field(min_length=1, max_length=MAX_PROPOSAL_PROSE)
+    semantic_plan: str = Field(default="", max_length=MAX_PROPOSAL_PROSE)
 
 
 class BusinessRuleProposal(StrictProposal):
     candidate_type: Literal["BUSINESS_RULE"] = "BUSINESS_RULE"
     display_name: str = Field(min_length=1, max_length=200)
-    instruction: str = Field(min_length=1)
+    instruction: str = Field(min_length=1, max_length=MAX_PROPOSAL_PROSE)
     semantic_concepts: list[str] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
 
@@ -118,7 +150,7 @@ class CandidateGeneration(StrictProposal):
     """The model's answer for one cluster: at most one proposal, or none."""
 
     proposes: bool = False
-    reason: str = ""
+    reason: str = Field(default="", max_length=MAX_PROPOSAL_REASON)
     metric: MetricProposal | None = None
     query_example: QueryExampleProposal | None = None
     business_rule: BusinessRuleProposal | None = None

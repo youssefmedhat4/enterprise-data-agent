@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from decimal import Decimal, DivisionByZero, InvalidOperation
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: How deep a proposal may nest. Enough for real business ratios, shallow
 #: enough that evaluation cannot be made expensive by a crafted proposal.
@@ -33,8 +33,44 @@ class ExpressionError(RuntimeError):
     """Raised when an expression is malformed or references unknown metrics."""
 
 
+#: Which shape a node is, is decided by the fields it carries: an operator
+#: makes it an operation, a metric key makes it a reference, a value makes it a
+#: literal. The `kind` tag restates that and carries nothing of its own.
+#:
+#: Models spell that tag however they like -- "metric_reference",
+#: "MetricExpression" -- and an otherwise correct proposal was being thrown
+#: away over the spelling. Matching a list of synonyms only postpones the
+#: problem, so the kind is read from the shape and the tag is corrected to
+#: agree. Content stays strict: metric keys, operators and values are
+#: validated exactly as before, and a node whose fields fit no shape is still
+#: refused.
+_KIND_BY_FIELD = (
+    ("operator", "binary"),
+    ("metric_key", "metric"),
+    ("value", "literal"),
+)
+
+
+def kind_from_shape(data: Mapping[str, object]) -> str | None:
+    """The node kind implied by which fields are present, if any."""
+    for field, kind in _KIND_BY_FIELD:
+        if field in data:
+            return kind
+    return None
+
+
 class StrictNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _kind_follows_shape(cls, data: object) -> object:
+        if not isinstance(data, Mapping):
+            return data
+        inferred = kind_from_shape(data)
+        if inferred is None or data.get("kind") == inferred:
+            return data
+        return {**data, "kind": inferred}
 
 
 class MetricRef(StrictNode):
@@ -52,10 +88,33 @@ class Literal_(StrictNode):
 
 
 class BinaryOp(StrictNode):
+    """One arithmetic step over two operands.
+
+    The operands are declared nullable purely so the generated JSON schema is
+    one a structured-output provider will accept. Vertex refuses a schema whose
+    recursion is reachable only through required fields -- "a ref loop of
+    required fields was found" -- even though this recursion terminates at a
+    metric reference or a literal. Declaring them required made every candidate
+    the background worker tried to generate fail with a 400, silently, for
+    every proposal: the tests all use a scripted model, so nothing noticed.
+
+    Nullable in the schema is not nullable in the contract. The validator below
+    refuses a node that is actually missing an operand, so a half-built
+    expression can never be stored or evaluated.
+    """
+
     kind: Literal["binary"] = "binary"
     operator: Literal["add", "subtract", "multiply", "divide"]
-    left: ExpressionNode
-    right: ExpressionNode
+    left: ExpressionNode | None = None
+    right: ExpressionNode | None = None
+
+    @model_validator(mode="after")
+    def _requires_both_operands(self) -> BinaryOp:
+        if self.left is None or self.right is None:
+            raise ValueError(
+                "A binary operation needs both a left and a right operand."
+            )
+        return self
 
 
 type ExpressionNode = MetricRef | Literal_ | BinaryOp
@@ -63,18 +122,31 @@ type ExpressionNode = MetricRef | Literal_ | BinaryOp
 BinaryOp.model_rebuild()
 
 
+def operands(node: BinaryOp) -> tuple[ExpressionNode, ExpressionNode]:
+    """Both operands of a validated node.
+
+    Unreachable for anything that passed validation; it exists so the nullable
+    schema declaration does not leak `None` handling into every caller.
+    """
+    if node.left is None or node.right is None:  # pragma: no cover - validated
+        raise ExpressionError("A binary operation is missing an operand.")
+    return node.left, node.right
+
+
 def referenced_metrics(node: ExpressionNode) -> set[str]:
     """Every certified metric key the expression depends on."""
     if isinstance(node, MetricRef):
         return {node.metric_key}
     if isinstance(node, BinaryOp):
-        return referenced_metrics(node.left) | referenced_metrics(node.right)
+        left, right = operands(node)
+        return referenced_metrics(left) | referenced_metrics(right)
     return set()
 
 
 def depth(node: ExpressionNode) -> int:
     if isinstance(node, BinaryOp):
-        return 1 + max(depth(node.left), depth(node.right))
+        left, right = operands(node)
+        return 1 + max(depth(left), depth(right))
     return 1
 
 
@@ -156,8 +228,9 @@ def evaluate(
     if isinstance(node, MetricRef):
         return measures.get(node.metric_key)
 
-    left = evaluate(node.left, measures)
-    right = evaluate(node.right, measures)
+    left_node, right_node = operands(node)
+    left = evaluate(left_node, measures)
+    right = evaluate(right_node, measures)
     if left is None or right is None:
         return None
     try:
@@ -183,4 +256,5 @@ def describe(node: ExpressionNode) -> str:
     symbol = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[
         node.operator
     ]
-    return f"({describe(node.left)} {symbol} {describe(node.right)})"
+    left, right = operands(node)
+    return f"({describe(left)} {symbol} {describe(right)})"
