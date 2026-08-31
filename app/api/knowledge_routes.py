@@ -690,6 +690,19 @@ async def review_candidate(
             await review.approve_business_rule(
                 data_source_id, candidate_id, reviewed_by=identity.subject_id
             )
+        elif candidate.candidate_type.value == "QUERY_EXAMPLE":
+            # The worker can propose one of these, and there is nowhere for it
+            # to go: an approved example carries the SQL that answered the
+            # question, and question memory deliberately keeps no SQL. Saying
+            # so is better than the previous message, which claimed the
+            # candidate "is not a metric" and sent the reviewer looking for a
+            # mistake they had not made.
+            raise CandidateReviewError(
+                "A proposed query example cannot be approved yet: an approved "
+                "example carries the validated SQL from the run it came from, "
+                "and question memory does not retain SQL. Reject it, or add "
+                "the example from a request you have seen succeed."
+            )
         else:
             await review.approve_metric(
                 data_source_id, candidate_id, reviewed_by=identity.subject_id
