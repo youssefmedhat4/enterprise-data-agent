@@ -100,6 +100,18 @@ class InvalidStructuredModelOutputError(LLMGatewayError):
     """Raised when a provider response does not satisfy the requested schema."""
 
 
+class ModelOutputTruncatedError(InvalidStructuredModelOutputError):
+    """Raised when the model ran out of output budget mid-response.
+
+    A subclass rather than a flag because callers that record failures record
+    the exception type. Reported as a generic schema failure, a model that
+    simply ran long is indistinguishable from one returning malformed JSON, and
+    the reader goes looking for a bad schema instead of raising the limit --
+    which is exactly what happened to every background proposal on this
+    deployment.
+    """
+
+
 class LLMGateway(Protocol):
     async def generate_structured(
         self,

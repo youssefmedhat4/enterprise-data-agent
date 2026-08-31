@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from app.llm.gateway import (
+    InvalidStructuredModelOutputError,
     LLMAuthenticationError,
     LLMGatewayError,
     LLMOutOfMemoryError,
@@ -12,6 +13,7 @@ from app.llm.gateway import (
     LLMQuotaExceededError,
     LLMRateLimitError,
     LLMToolUseError,
+    ModelOutputTruncatedError,
     SQLGeneration,
     UnknownModelAliasError,
 )
@@ -564,3 +566,40 @@ async def test_litellm_gateway_tracks_non_content_usage_metadata() -> None:
     assert usage.model_calls == {"provider-reported-model": 1}
     assert usage.provider_calls == {"gemini": 1}
     assert "unit-test-credential" not in repr(usage)
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_response_is_reported_as_truncation_not_bad_output() -> None:
+    """An operator who sees "invalid structured response" fixes the wrong thing.
+
+    Every background proposal on a live deployment failed under that code; the
+    real cause was the model running past its output budget, and the fix was
+    the limit rather than the schema.
+    """
+
+    async def completion(**_: Any) -> dict[str, Any]:
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": '{"action": "execute", "sql": "SELECT id FR'},
+                }
+            ]
+        }
+
+    gateway = LiteLLMGateway(
+        {"sql-reasoner": "openai/test-model"}, completion=completion
+    )
+
+    with pytest.raises(ModelOutputTruncatedError) as excinfo:
+        await gateway.generate_structured(
+            model_alias="sql-reasoner",
+            system="s",
+            user="u",
+            response_model=SQLGeneration,
+        )
+
+    # Still the same family, so existing handling keeps working unchanged.
+    assert isinstance(excinfo.value, InvalidStructuredModelOutputError)
+    # And it names the setting that actually fixes it.
+    assert "LLM_MAX_OUTPUT_TOKENS" in str(excinfo.value)

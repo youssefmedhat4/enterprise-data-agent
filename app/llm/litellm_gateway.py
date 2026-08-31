@@ -22,6 +22,7 @@ from app.llm.gateway import (
     LLMTimeoutError,
     LLMToolUseError,
     LLMUsageSnapshot,
+    ModelOutputTruncatedError,
     ProviderErrorCategory,
     ProviderErrorInfo,
     ResponseModelT,
@@ -300,7 +301,7 @@ class LiteLLMGateway(LLMGateway):
             return
         if self._field(choices[0], "finish_reason") != "length":
             return
-        raise InvalidStructuredModelOutputError(
+        raise ModelOutputTruncatedError(
             "The model reached its output token limit before completing a "
             "structured response. Raise LLM_MAX_OUTPUT_TOKENS."
         )
