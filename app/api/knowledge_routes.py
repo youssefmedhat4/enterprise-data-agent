@@ -32,6 +32,7 @@ from app.knowledge.candidates import CandidateStatus
 from app.knowledge.contracts import ApprovalStatus, DataSourceStatus
 from app.knowledge.runtime import KnowledgeRuntime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
+from app.llm.profiles import DEFAULT_MODEL_PROFILE
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -158,27 +159,219 @@ async def require_knowledge_reviewer(
     return identity
 
 
+def get_llm_gateway_for_scan(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Any:
+    """A gateway for onboarding, using the default analysis model.
+
+    Scanning is an admin workflow rather than a request, so there is no
+    per-request model choice to honour here.
+    """
+    from app.llm.factory import build_llm_gateway
+
+    return build_llm_gateway(settings, model_profile=DEFAULT_MODEL_PROFILE)
+
+
+def _data_source_view(source: Any) -> DataSourceSummary:
+    """Project a datasource for the API. Carries the reference, never a secret."""
+    return DataSourceSummary(
+        id=source.id,
+        name=source.name,
+        database_type=source.database_type,
+        connection_ref=source.connection_ref,
+        status=source.status,
+        schema_fingerprint=source.schema_fingerprint,
+        is_default=source.is_default,
+        last_scanned_at=(
+            source.last_scanned_at.isoformat()
+            if source.last_scanned_at is not None
+            else None
+        ),
+    )
+
+
+class RegisterDataSource(StrictPayload):
+    """What a reviewer supplies to register a database.
+
+    No credential field exists. `connection_ref` names a server-side secret and
+    must be one the server already allows, so this cannot be used to point the
+    scanner at an arbitrary host or to probe which environment variables exist.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    database_type: str = Field(default="postgres", max_length=50)
+    connection_ref: str = Field(min_length=1, max_length=200)
+
+
+class ScanSummaryView(StrictPayload):
+    data_source_id: UUID
+    schema_fingerprint: str
+    schema_changed: bool
+    table_count: int
+    proposed_entities: int
+    proposed_attributes: int
+    proposed_relationships: int
+    confirmed_preserved: int
+    marked_stale: int
+
+
+@router.get("/connection-refs")
+async def list_connection_refs(
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> list[str]:
+    """Reference names a reviewer may choose. Names only, never values."""
+    return list(settings.allowed_connection_refs)
+
+
+@router.post("/data-sources", status_code=201)
+async def register_data_source(
+    payload: RegisterDataSource,
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DataSourceSummary:
+    from app.knowledge.datasources import (
+        DataSourceConnectionResolver,
+        DataSourceError,
+    )
+
+    if knowledge.data_sources is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Datasource registration requires persistent knowledge storage.",
+        )
+    resolver = DataSourceConnectionResolver(settings)
+    if not resolver.is_allowed(payload.connection_ref):
+        raise HTTPException(
+            status_code=422,
+            detail="That connection reference is not configured on this server.",
+        )
+    try:
+        source = await knowledge.data_sources.register(
+            name=payload.name,
+            database_type=payload.database_type,
+            connection_ref=payload.connection_ref,
+        )
+    except (DataSourceError, ValueError) as exc:
+        # Covers the contract validator refusing a pasted DSN.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _data_source_view(source)
+
+
+@router.post("/data-sources/{data_source_id}/scan")
+async def scan_data_source(
+    data_source_id: UUID,
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    db_gateway: Annotated[DatabaseGateway, Depends(get_database_gateway)],
+    llm_gateway: Annotated[Any, Depends(get_llm_gateway_for_scan)],
+) -> ScanSummaryView:
+    """Scan a datasource and persist the semantic model it implies.
+
+    Rescanning preserves confirmed mappings and marks only what broke, so a
+    schema change never silently discards review.
+    """
+    from app.knowledge.datasources import DataSourceError
+    from app.knowledge.discovery import SemanticDiscoveryService
+    from app.knowledge.onboarding import DataSourceOnboardingService
+
+    if knowledge.data_sources is None or knowledge.semantics is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Scanning requires persistent knowledge storage.",
+        )
+    source = await knowledge.data_sources.get(data_source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="No such datasource.")
+
+    # Sending schema metadata to a cloud model is database-derived content.
+    settings.validate_cloud_data_for_models(
+        settings.resolve_model_profile(DEFAULT_MODEL_PROFILE).model_aliases.values()
+    )
+
+    try:
+        tables = await db_gateway.search_schema("")
+    except Exception as exc:
+        # Type only: a driver message can contain a DSN.
+        raise HTTPException(
+            status_code=502,
+            detail=f"The datasource could not be read ({type(exc).__name__}).",
+        ) from exc
+
+    service = DataSourceOnboardingService(
+        discovery=SemanticDiscoveryService(llm_gateway),
+        semantics=knowledge.semantics,
+    )
+    try:
+        summary = await service.scan(
+            data_source_id=data_source_id,
+            tables=tables,
+            previous_fingerprint=source.schema_fingerprint,
+        )
+    except DataSourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await knowledge.data_sources.record_scan(
+        data_source_id, schema_fingerprint=summary.schema_fingerprint
+    )
+    if summary.schema_changed and knowledge.guidance is not None:
+        await knowledge.guidance.mark_stale_for_schema(
+            data_source_id, new_schema_fingerprint=summary.schema_fingerprint
+        )
+    return ScanSummaryView(
+        data_source_id=summary.data_source_id,
+        schema_fingerprint=summary.schema_fingerprint,
+        schema_changed=summary.schema_changed,
+        table_count=summary.table_count,
+        proposed_entities=summary.proposed_entities,
+        proposed_attributes=summary.proposed_attributes,
+        proposed_relationships=summary.proposed_relationships,
+        confirmed_preserved=summary.confirmed_preserved,
+        marked_stale=summary.marked_stale,
+    )
+
+
 @router.get("/data-sources", response_model=list[DataSourceSummary])
 async def list_data_sources(
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
     knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[DataSourceSummary]:
     """The registered datasources this deployment can answer from."""
-    registry = knowledge.registry
-    certified = 0
-    if registry is not None:
-        certified = len(await registry.certified(DEFAULT_DATA_SOURCE_ID))
-    return [
-        DataSourceSummary(
-            id=DEFAULT_DATA_SOURCE_ID,
-            name="Company Analytics",
-            database_type="postgres",
-            connection_ref="DATABASE_URL",
-            status=DataSourceStatus.READY,
-            is_default=True,
-            certified_metric_count=certified,
+    if knowledge.data_sources is None:
+        certified = len(await knowledge.registry.certified(DEFAULT_DATA_SOURCE_ID))
+        return [
+            DataSourceSummary(
+                id=DEFAULT_DATA_SOURCE_ID,
+                name="Company Analytics",
+                database_type="postgres",
+                connection_ref="DATABASE_URL",
+                status=DataSourceStatus.READY,
+                is_default=True,
+                certified_metric_count=certified,
+            )
+        ]
+    summaries: list[DataSourceSummary] = []
+    for source in await knowledge.data_sources.list():
+        view = _data_source_view(source)
+        view.certified_metric_count = len(
+            await knowledge.registry.certified(source.id)
         )
-    ]
+        if knowledge.memory is not None:
+            view.recurring_cluster_count = len(
+                await knowledge.memory.clusters(source.id)
+            )
+        if knowledge.semantics is not None:
+            model = await knowledge.semantics.load(source.id)
+            view.confirmed_entity_count = len(model.confirmed_entities())
+            view.proposed_entity_count = sum(
+                1
+                for entity in model.entities
+                if entity.status is ApprovalStatus.PROPOSED
+            )
+        summaries.append(view)
+    return summaries
 
 
 @router.get("/data-sources/{data_source_id}/semantics")
@@ -188,9 +381,130 @@ async def list_semantics(
     knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
     status: ApprovalStatus | None = None,
 ) -> list[SemanticProposalView]:
-    """Semantic proposals and confirmed mappings for one datasource."""
-    del data_source_id, status
-    return []
+    """Persisted semantic mappings for one datasource, in every review state.
+
+    Reads the same rows EntityResolver reads, so a reviewer is always looking
+    at runtime truth rather than a parallel copy.
+    """
+    if knowledge.semantics is None:
+        return []
+    model = await knowledge.semantics.load(data_source_id)
+    entities = {entity.id: entity for entity in model.entities}
+    views: list[SemanticProposalView] = []
+    for entity in model.entities:
+        views.append(
+            SemanticProposalView(
+                id=entity.id,
+                kind="entity",
+                physical=f"{entity.source_schema}.{entity.source_table}",
+                proposed_concept=entity.entity_name,
+                confidence=entity.confidence,
+                status=entity.status,
+                detail=entity.description or "",
+            )
+        )
+    for attribute in model.attributes:
+        owner = entities.get(attribute.entity_id)
+        table = (
+            f"{owner.source_schema}.{owner.source_table}"
+            if owner is not None
+            else "unknown"
+        )
+        views.append(
+            SemanticProposalView(
+                id=attribute.id,
+                kind="attribute",
+                physical=f"{table}.{attribute.source_column}",
+                proposed_concept=attribute.concept_name,
+                confidence=attribute.confidence,
+                status=attribute.status,
+                detail="canonical key" if attribute.is_identifier else "",
+            )
+        )
+    for relationship in model.relationships:
+        source = entities.get(relationship.from_entity_id)
+        target = entities.get(relationship.to_entity_id)
+        views.append(
+            SemanticProposalView(
+                id=relationship.id,
+                kind="relationship",
+                physical=(
+                    f"{source.source_table if source else '?'}"
+                    f".{relationship.from_column}"
+                    f" -> {target.source_table if target else '?'}"
+                    f".{relationship.to_column}"
+                ),
+                proposed_concept=relationship.relationship_name,
+                confidence=relationship.confidence,
+                status=relationship.status,
+                detail=relationship.cardinality or "",
+            )
+        )
+    if status is not None:
+        views = [view for view in views if view.status is status]
+    return views
+
+
+@router.post("/data-sources/{data_source_id}/semantics/{proposal_id}/review")
+async def review_semantic_proposal(
+    data_source_id: UUID,
+    proposal_id: UUID,
+    decision: ReviewDecision,
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+) -> SemanticProposalView:
+    """Approve, edit, or reject one mapping, persistently.
+
+    Editing supplies a corrected concept name and approves in the same step:
+    a reviewer correcting a name is confirming what it means, and forcing a
+    second click would only invite approving without the correction.
+    """
+    from app.knowledge.discovery import SemanticReview, SemanticReviewError
+
+    if knowledge.semantics is None:
+        raise HTTPException(status_code=404, detail="No semantics to review.")
+
+    model = await knowledge.semantics.load(data_source_id)
+    review = SemanticReview()
+    name = decision.concept_name
+    kind = _kind_of(model, proposal_id)
+    if kind is None:
+        raise HTTPException(status_code=404, detail="No such proposal.")
+
+    try:
+        if decision.action == "reject":
+            model = {
+                "entity": review.reject_entity,
+                "attribute": review.reject_attribute,
+                "relationship": review.reject_relationship,
+            }[kind](model, proposal_id)
+        elif kind == "entity":
+            model = review.approve_entity(model, proposal_id, entity_name=name)
+        elif kind == "attribute":
+            model = review.approve_attribute(model, proposal_id, concept_name=name)
+        else:
+            model = review.approve_relationship(
+                model, proposal_id, relationship_name=name
+            )
+    except SemanticReviewError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await knowledge.semantics.save(model)
+    updated = await list_semantics(data_source_id, _, knowledge, None)
+    for view in updated:
+        if view.id == proposal_id:
+            return view
+    raise HTTPException(status_code=404, detail="No such proposal.")
+
+
+def _kind_of(model: Any, proposal_id: UUID) -> str | None:
+    if any(entity.id == proposal_id for entity in model.entities):
+        return "entity"
+    if any(attribute.id == proposal_id for attribute in model.attributes):
+        return "attribute"
+    if any(item.id == proposal_id for item in model.relationships):
+        return "relationship"
+    return None
 
 
 @router.get("/data-sources/{data_source_id}/clusters")

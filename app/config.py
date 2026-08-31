@@ -280,6 +280,14 @@ class Settings(BaseSettings):
     #: shape; `memory` exists for development and tests. There is deliberately
     #: no automatic downgrade between them: silently losing persistence would
     #: let learning state diverge per worker while the API kept serving.
+    #: Connection references a reviewer may register a datasource against.
+    #: An allowlist rather than free text: without it, registration would let
+    #: an admin name any environment variable and have its value used as a
+    #: connection string, turning a form into an environment reader.
+    allowed_connection_refs_csv: str = Field(
+        default="DATABASE_URL",
+        alias="ALLOWED_CONNECTION_REFS",
+    )
     knowledge_storage: Literal["postgres", "memory"] = Field(
         default="memory",
         alias="KNOWLEDGE_STORAGE",
@@ -500,6 +508,10 @@ class Settings(BaseSettings):
     @property
     def openmetadata_sensitivity_classifications(self) -> tuple[str, ...]:
         return _safe_csv_identifiers(self.openmetadata_sensitivity_classifications_csv)
+
+    @property
+    def allowed_connection_refs(self) -> tuple[str, ...]:
+        return _safe_csv_identifiers(self.allowed_connection_refs_csv)
 
     @property
     def model_aliases(self) -> dict[str, str]:

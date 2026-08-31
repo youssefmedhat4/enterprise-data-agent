@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -14,9 +15,27 @@ from app.knowledge.runtime import build_knowledge_runtime
 from app.observability.factory import build_trace_service
 
 
+@asynccontextmanager
+async def _knowledge_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Build the knowledge layer once, before the first request.
+
+    Failure here stops the application deliberately. Serving with an
+    unexpectedly non-persistent knowledge layer is worse than not serving:
+    reviewers would approve metrics that vanish and workers would learn
+    different things.
+    """
+    app.state.knowledge = await build_knowledge_runtime(get_settings())
+    try:
+        yield
+    finally:
+        runtime = getattr(app.state, "knowledge", None)
+        if runtime is not None:
+            await runtime.close()
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_name)
+    app = FastAPI(title=settings.app_name, lifespan=_knowledge_lifespan)
     traces = build_trace_service(settings)
 
     @app.middleware("http")
@@ -89,23 +108,6 @@ def create_app() -> FastAPI:
             request_id=getattr(request.state, "request_id", str(uuid4())),
             retryable=False,
         )
-
-    @app.on_event("startup")
-    async def open_knowledge_runtime() -> None:
-        """Build the knowledge layer once, before the first request.
-
-        Failure here stops the application deliberately. Serving with an
-        unexpectedly non-persistent knowledge layer is worse than not serving:
-        reviewers would approve metrics that vanish, and workers would learn
-        different things.
-        """
-        app.state.knowledge = await build_knowledge_runtime(settings)
-
-    @app.on_event("shutdown")
-    async def close_knowledge_runtime() -> None:
-        runtime = getattr(app.state, "knowledge", None)
-        if runtime is not None:
-            await runtime.close()
 
     app.include_router(router)
     app.include_router(knowledge_router)

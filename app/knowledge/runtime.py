@@ -24,6 +24,7 @@ from app.config import Settings
 from app.embeddings.factory import build_embedding_gateway
 from app.knowledge.candidates import InMemoryCandidateStore
 from app.knowledge.database import KnowledgeDatabase, KnowledgeDatabaseError
+from app.knowledge.datasources import PostgresDataSourceRegistry
 from app.knowledge.guidance import InMemoryGuidanceStore
 from app.knowledge.jobs import PostgresGenerationJobQueue
 from app.knowledge.memory import InMemoryQuestionMemory
@@ -60,6 +61,7 @@ class KnowledgeRuntime:
     guidance: Any
     semantics: SemanticRepository | None
     jobs: PostgresGenerationJobQueue | None
+    data_sources: Any | None
     retriever: MetricRetriever
     database: KnowledgeDatabase | None
     persistent: bool
@@ -100,6 +102,10 @@ async def build_knowledge_runtime(
     await database.initialize()
     pool = database.pool
 
+    # The default datasource must exist before metrics can reference it.
+    sources = PostgresDataSourceRegistry(pool)
+    await sources.ensure_default(data_source_id)
+
     registry = PostgresMetricRegistry(pool)
     await _seed_default_metrics(registry, data_source_id)
 
@@ -115,6 +121,7 @@ async def build_knowledge_runtime(
         guidance=PostgresGuidanceStore(pool),
         semantics=PostgresSemanticRepository(pool),
         jobs=PostgresGenerationJobQueue(pool),
+        data_sources=sources,
         retriever=retriever,
         database=database,
         persistent=True,
@@ -138,6 +145,7 @@ async def _in_memory_runtime(
         guidance=InMemoryGuidanceStore(),
         semantics=None,
         jobs=None,
+        data_sources=None,
         retriever=retriever,
         database=None,
         persistent=False,

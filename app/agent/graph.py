@@ -47,6 +47,7 @@ from app.knowledge.memory import QuestionEvent, QuestionMemory
 from app.knowledge.metrics import MetricRegistry
 from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
+from app.knowledge.triggers import CandidateTrigger
 from app.llm.gateway import AnswerGeneration, LLMGateway, SQLGeneration, SQLRepair
 from app.metrics.catalog import GOVERNED_METRICS
 from app.metrics.gateway import (
@@ -91,6 +92,7 @@ def build_graph(
     metric_intent_planner: MetricIntentPlanner | None = None,
     question_memory: QuestionMemory | None = None,
     guidance_store: InMemoryGuidanceStore | None = None,
+    candidate_trigger: CandidateTrigger | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     enable_query_router: bool = False,
     authorization_gateway: AuthorizationGateway | None = None,
@@ -128,7 +130,9 @@ def build_graph(
         "execute_sql": _execute_sql(db_gateway),
         "ground_answer": _ground_answer(db_gateway, llm_gateway),
         "finalize_sql_result": _finalize_sql_result(db_gateway),
-        "record_context": _record_context(question_memory, data_source_id),
+        "record_context": _record_context(
+            question_memory, data_source_id, candidate_trigger
+        ),
     }
     for name, node in nodes.items():
         graph.add_node(name, _observed_node(name, node, traces))
@@ -1108,6 +1112,7 @@ def _finalize_sql_result(db_gateway: DatabaseGateway) -> Node:
 def _record_context(
     memory: QuestionMemory | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
+    candidate_trigger: CandidateTrigger | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         plan = state.get("analysis_plan", AnalysisPlan())
@@ -1141,7 +1146,9 @@ def _record_context(
             query_id=state.get("query_id"),
         )
         if memory is not None:
-            await _remember_question(memory, state, data_source_id)
+            await _remember_question(
+                memory, state, data_source_id, candidate_trigger
+            )
         return {"analytical_context": context, "conversation_turns": [turn]}
 
     return node
@@ -1151,6 +1158,7 @@ async def _remember_question(
     memory: QuestionMemory,
     state: AgentState,
     data_source_id: UUID,
+    candidate_trigger: CandidateTrigger | None = None,
 ) -> None:
     """Record what was asked and what shape answered it. Never the answer.
 
@@ -1193,10 +1201,16 @@ async def _remember_question(
         grounded=bool(state.get("claims")),
     )
     try:
-        await memory.record(event)
+        cluster = await memory.record(event)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "question memory record failed: %s", type(exc).__name__
+        logger.warning("question memory record failed: %s", type(exc).__name__)
+        return
+    if candidate_trigger is not None:
+        # One guarded INSERT when a threshold is newly crossed. Generation
+        # itself happens later, when a worker claims the job, so no model is
+        # called on this request.
+        await candidate_trigger.consider(
+            data_source_id=data_source_id, cluster=cluster
         )
 
 

@@ -112,3 +112,65 @@ def test_reviewing_a_missing_candidate_does_not_confirm_what_exists(
     )
 
     assert response.status_code in {404, 422}
+
+
+MUTATING_ROUTES = [
+    ("post", "/knowledge/data-sources", {"name": "X", "connection_ref": "DATABASE_URL"}),
+    (
+        "post",
+        f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/scan",
+        None,
+    ),
+    (
+        "post",
+        f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}"
+        "/semantics/00000000-0000-0000-0000-0000000000aa/review",
+        {"action": "approve"},
+    ),
+    (
+        "post",
+        f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}"
+        "/candidates/00000000-0000-0000-0000-0000000000bb/review",
+        {"action": "approve"},
+    ),
+]
+
+
+@pytest.mark.parametrize(("method", "path", "body"), MUTATING_ROUTES)
+def test_an_analyst_cannot_perform_knowledge_mutations(
+    analyst: TestClient, method: str, path: str, body: dict[str, str] | None
+) -> None:
+    """Registering, scanning, and approving all need review authority."""
+    response = getattr(analyst, method)(path, json=body)
+
+    assert response.status_code == 403
+
+
+def test_an_analyst_cannot_list_connection_references(analyst: TestClient) -> None:
+    """Reference names describe server configuration; analysts do not see them."""
+    assert analyst.get("/knowledge/connection-refs").status_code == 403
+
+
+def test_a_reviewer_sees_only_configured_connection_references(
+    reviewer: TestClient,
+) -> None:
+    response = reviewer.get("/knowledge/connection-refs")
+
+    assert response.status_code == 200
+    refs = response.json()
+    assert refs == ["DATABASE_URL"]
+    # Names only. A value would be the credential itself.
+    assert all("://" not in ref for ref in refs)
+
+
+def test_registering_with_a_pasted_dsn_is_refused(reviewer: TestClient) -> None:
+    response = reviewer.post(
+        "/knowledge/data-sources",
+        json={
+            "name": "Sneaky",
+            "connection_ref": "postgresql://user:secret@localhost/db",
+        },
+    )
+
+    assert response.status_code in {422, 503}
+    assert "secret" not in response.text
