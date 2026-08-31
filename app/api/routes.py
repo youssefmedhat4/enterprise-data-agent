@@ -42,6 +42,7 @@ from app.knowledge.factory import (
     build_metric_retriever,
 )
 from app.knowledge.retrieval import MetricRetriever
+from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.factory import build_llm_gateway
 from app.llm.gateway import LLMGateway, LLMGatewayWithUsage, LLMUsageSnapshot
 from app.metrics.factory import build_metric_gateway
@@ -318,7 +319,11 @@ async def query_analytics(
     ],
 ) -> AnalyticsResponse:
     request_id = getattr(http_request.state, "request_id", str(uuid4()))
-    thread_id = request.thread_id or str(uuid4())
+    active_data_source_id = request.data_source_id or DEFAULT_DATA_SOURCE_ID
+    # Thread identity carries the datasource, so a thread started against one
+    # database cannot supply prior context to another. Switching datasource in
+    # the client yields a different thread key and therefore a fresh context.
+    thread_id = request.thread_id or f"{active_data_source_id}:{uuid4()}"
     selected_model_profile = settings.resolve_model_profile(request.model_profile)
     # Per request, because the planner must use the model this request selected.
     intent_planner = (
@@ -335,6 +340,7 @@ async def query_analytics(
         sql_generation_provider=settings.sql_generation_provider,
         metric_gateway=metric_gateway,
         metric_registry=cast(Any, _metric_knowledge.get("registry")),
+        data_source_id=active_data_source_id,
         metric_intent_planner=intent_planner,
         enable_query_router=True,
         authorization_gateway=authorization_gateway,
@@ -424,6 +430,7 @@ async def query_analytics(
         request_id=request_id,
         thread_id=thread_id,
         model_profile=selected_model_profile.profile,
+        data_source_id=active_data_source_id,
         model_display_name=selected_model_profile.display_name,
         status=execution.status,
         answer=result["final_answer"],

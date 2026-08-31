@@ -243,6 +243,8 @@ class MetricIntentPlanner:
         data_source_id: UUID,
         question: str,
         authorized_metrics: list[RegisteredMetric],
+        prior_metric_keys: tuple[str, ...] = (),
+        prior_dimensions: tuple[str, ...] = (),
     ) -> MetricIntentOutcome:
         candidates = await self._retriever.retrieve(
             data_source_id=data_source_id,
@@ -262,7 +264,12 @@ class MetricIntentPlanner:
         selection = await self._llm.generate_structured(
             model_alias=self._model_alias,
             system=_intent_system_prompt(),
-            user=_intent_user_prompt(question, candidates),
+            user=_intent_user_prompt(
+                question,
+                candidates,
+                prior_metric_keys=prior_metric_keys,
+                prior_dimensions=prior_dimensions,
+            ),
             response_model=MetricSelection,
         )
 
@@ -330,9 +337,33 @@ def _intent_system_prompt() -> str:
     )
 
 
-def _intent_user_prompt(question: str, candidates: list[MetricCandidate]) -> str:
+def _intent_user_prompt(
+    question: str,
+    candidates: list[MetricCandidate],
+    *,
+    prior_metric_keys: tuple[str, ...] = (),
+    prior_dimensions: tuple[str, ...] = (),
+) -> str:
     payload = candidate_prompt_payload(candidates)
-    lines = [f"Question: {question}", "", "Candidate metrics:"]
+    lines = [f"Question: {question}"]
+    if prior_metric_keys:
+        # A follow-up like "by department" is not a new question. Without the
+        # previous selection the model would see only a fragment and fall back
+        # to ad-hoc, losing the metric the user is still asking about.
+        lines.extend(
+            [
+                "",
+                "This thread's previous governed answer used:",
+                f"  metrics: {', '.join(prior_metric_keys)}",
+                f"  dimensions: {', '.join(prior_dimensions) or 'none'}",
+                "If the question above only refines that answer -- adding or "
+                "changing a grouping, narrowing to one value, or asking for a "
+                "top-N -- keep those metrics and adjust what it asks about. "
+                "Switch metrics only when the question genuinely asks for "
+                "something else.",
+            ]
+        )
+    lines.extend(["", "Candidate metrics:"])
     for entry in payload:
         dimensions = ", ".join(cast(list[str], entry["dimensions"])) or "none"
         lines.append(

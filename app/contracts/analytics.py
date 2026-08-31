@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -18,6 +19,9 @@ class AnalyticsRequest(StrictContract):
     thread_id: str | None = Field(default=None, min_length=1)
     include_debug: bool = False
     model_profile: ModelProfile = DEFAULT_MODEL_PROFILE
+    #: Which registered database to answer from. Omitted means the default
+    #: datasource, so existing callers and the seeded demo keep working.
+    data_source_id: UUID | None = None
 
 
 class ClaimEvidence(StrictContract):
@@ -316,6 +320,9 @@ class AnalyticsResponse(StrictContract):
     request_id: str
     thread_id: str
     model_profile: ModelProfile
+    #: Which database answered. Returned so the client can keep an exchange
+    #: bound to its datasource and retry against the same one.
+    data_source_id: UUID
     model_display_name: str
     status: Literal["completed", "clarification_required", "blocked", "empty"]
     answer: str

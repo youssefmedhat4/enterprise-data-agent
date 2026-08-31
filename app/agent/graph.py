@@ -395,10 +395,21 @@ def _plan_metric_intent(
             for metric in certified
             if metric.metric_key in state["authorized_metric_ids"]
         ]
+        prior = state.get("analytical_context")
+        prior_metrics: tuple[str, ...] = ()
+        prior_dimensions: tuple[str, ...] = ()
+        if prior is not None and prior.metric_query is not None:
+            # Carried only within one thread, and a thread is scoped to one
+            # datasource, so a follow-up can never inherit another database's
+            # selection.
+            prior_metrics = (prior.metric_query.metric,)
+            prior_dimensions = tuple(prior.metric_query.dimensions)
         outcome = await planner.plan(
             data_source_id=data_source_id,
             question=state["resolved_question"],
             authorized_metrics=authorized,
+            prior_metric_keys=prior_metrics,
+            prior_dimensions=prior_dimensions,
         )
         latency_ms = round((perf_counter() - started) * 1000, 3)
         base: AgentState = {
