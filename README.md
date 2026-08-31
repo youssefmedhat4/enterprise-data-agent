@@ -181,11 +181,42 @@ this decision accepts.
 
 ## Query Routing
 
-The API uses a deterministic-first `QueryRouter`. Governed KPI calculations are planned as
-typed `MetricQuery` requests and sent to the configured `MetricGateway` (Wren by default); row-level and ad-hoc questions continue through
-semantic context, the SQL reasoner, SQLGlot, and `DatabaseGateway`. Clarification, mutation
-blocking, and governed-provider failure happen before query execution, with no cross-route
-fallback.
+Deterministic safety runs first: mutation blocking and clarification never depend on a
+model. Whether a question is *governed* is then decided semantically, not by matching
+configured aliases. Authorized certified metrics are retrieved for the active datasource,
+the model selects among only those candidates, and `MetricIntentValidator` decides what is
+executable — a selection naming an unknown or unauthorized metric falls back to ad-hoc SQL
+rather than executing. Governed plans run through Wren; ad-hoc questions continue through
+semantic context, the SQL reasoner, SQLGlot, and `DatabaseGateway`.
+
+A broad paraphrase such as "How much money does the organization commit to employee base
+compensation each year?" reaches `annual_base_payroll` without containing any configured
+alias.
+
+## Learned Analytics Knowledge
+
+Each database develops its own understanding, and a human approves all of it.
+
+Terminal requests are recorded as question memory: what was asked and what *shape* of
+analysis answered it, never the answer. Repeated questions with the same analytical
+structure form per-datasource clusters, and a cluster that recurs and repeatedly succeeds
+can produce a PROPOSED knowledge candidate — a derived metric, a query example, or a
+business rule.
+
+Nothing becomes authoritative without review. Approving a metric candidate re-validates its
+dependencies, grain, expression and dimensions against the registry before certifying it;
+derived metrics are bounded arithmetic over already-certified metrics, never SQL. Approved
+query examples reach the model as reference only and every generated statement still passes
+SQLGlot, current authorization and the read-only role. Rejected candidates are remembered so
+the same proposal is not immediately recreated.
+
+Question memory never answers a question. Current numbers always come from the live
+database. Retention is opt-in via `QUESTION_MEMORY_ENABLED`; ordinary logs stay
+content-free.
+
+Reviewers use the Knowledge console at `/knowledge`, which requires the `knowledge_review`
+capability — separate from analytics access, because reading data is not authority over what
+the data means. See `docs/decisions/0014-analytics-learning-loop.md`.
 
 Run the English, Arabic, and mixed-language routing baseline with:
 
