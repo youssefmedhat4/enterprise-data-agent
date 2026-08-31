@@ -10,6 +10,7 @@ from app.api.knowledge_routes import router as knowledge_router
 from app.api.routes import router
 from app.config import get_settings
 from app.errors import ApplicationError, ErrorCode, ErrorDetail, ErrorResponse
+from app.knowledge.runtime import build_knowledge_runtime
 from app.observability.factory import build_trace_service
 
 
@@ -88,6 +89,23 @@ def create_app() -> FastAPI:
             request_id=getattr(request.state, "request_id", str(uuid4())),
             retryable=False,
         )
+
+    @app.on_event("startup")
+    async def open_knowledge_runtime() -> None:
+        """Build the knowledge layer once, before the first request.
+
+        Failure here stops the application deliberately. Serving with an
+        unexpectedly non-persistent knowledge layer is worse than not serving:
+        reviewers would approve metrics that vanish, and workers would learn
+        different things.
+        """
+        app.state.knowledge = await build_knowledge_runtime(settings)
+
+    @app.on_event("shutdown")
+    async def close_knowledge_runtime() -> None:
+        runtime = getattr(app.state, "knowledge", None)
+        if runtime is not None:
+            await runtime.close()
 
     app.include_router(router)
     app.include_router(knowledge_router)

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from functools import lru_cache
@@ -31,20 +32,11 @@ from app.contracts.analytics import (
 )
 from app.data.factory import build_database_gateway
 from app.data.gateway import DatabaseGateway, DatabaseUnavailableError
-from app.embeddings.gateway import EmbeddingError
 from app.errors import ErrorResponse, normalize_error
 from app.governance.factory import build_governance_gateway
 from app.governance.gateway import GovernanceGateway
-from app.knowledge.candidates import InMemoryCandidateStore
-from app.knowledge.factory import (
-    bootstrap_default_datasource,
-    build_metric_intent_planner,
-    build_metric_registry,
-    build_metric_retriever,
-)
-from app.knowledge.guidance import InMemoryGuidanceStore
-from app.knowledge.memory import InMemoryQuestionMemory
-from app.knowledge.retrieval import MetricRetriever
+from app.knowledge.factory import build_metric_intent_planner
+from app.knowledge.runtime import KnowledgeRuntime, build_knowledge_runtime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.factory import build_llm_gateway
 from app.llm.gateway import LLMGateway, LLMGatewayWithUsage, LLMUsageSnapshot
@@ -157,39 +149,32 @@ def get_metric_gateway(
     return build_metric_gateway(settings, database=db_gateway)
 
 
-#: Built once per process. Indexing embeds every certified metric document, so
-#: rebuilding it per request would re-embed the whole catalog on every question.
-_metric_knowledge: dict[str, Any] = {}
+_knowledge_lock = asyncio.Lock()
 
 
-async def get_metric_retriever(
+async def get_knowledge_runtime(
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-) -> MetricRetriever | None:
-    """The retriever over the default datasource's certified metrics.
+) -> KnowledgeRuntime:
+    """The process-wide knowledge layer.
 
-    Returns None when the knowledge layer cannot be built -- no embedding
-    provider, or cloud embeddings without approval. Governed routing then falls
-    back to the previous behaviour rather than failing the request, because a
-    missing knowledge layer is a configuration state, not a caller error.
+    Normally built by the startup hook so a misconfiguration is discovered
+    before the first request. Built here on first use when the application was
+    mounted without running its lifespan, which is how the test transports and
+    some embedding hosts work.
+
+    Either way the shape comes from `KNOWLEDGE_STORAGE`: this never downgrades
+    to in-memory because a database was unreachable, it raises.
     """
-    cached = _metric_knowledge.get("retriever")
-    if cached is not None:
-        return cast(MetricRetriever, cached)
-    try:
-        registry = build_metric_registry(settings)
-        await bootstrap_default_datasource(registry)
-        retriever = await build_metric_retriever(settings, registry)
-    except (ValueError, EmbeddingError) as exc:
-        logger.warning(
-            "semantic metric routing unavailable: %s", type(exc).__name__
-        )
-        return None
-    _metric_knowledge["registry"] = registry
-    _metric_knowledge["retriever"] = retriever
-    _metric_knowledge.setdefault("memory", InMemoryQuestionMemory())
-    _metric_knowledge.setdefault("candidates", InMemoryCandidateStore())
-    _metric_knowledge.setdefault("guidance", InMemoryGuidanceStore())
-    return retriever
+    runtime = getattr(request.app.state, "knowledge", None)
+    if runtime is not None:
+        return cast(KnowledgeRuntime, runtime)
+    async with _knowledge_lock:
+        runtime = getattr(request.app.state, "knowledge", None)
+        if runtime is None:
+            runtime = await build_knowledge_runtime(settings)
+            request.app.state.knowledge = runtime
+    return cast(KnowledgeRuntime, runtime)
 
 
 async def get_conversation_checkpointer(
@@ -320,9 +305,7 @@ async def query_analytics(
         Depends(get_governance_gateway),
     ],
     trace_service: Annotated[TraceService, Depends(get_trace_service)],
-    metric_retriever: Annotated[
-        MetricRetriever | None, Depends(get_metric_retriever)
-    ],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> AnalyticsResponse:
     request_id = getattr(http_request.state, "request_id", str(uuid4()))
     active_data_source_id = request.data_source_id or DEFAULT_DATA_SOURCE_ID
@@ -332,11 +315,7 @@ async def query_analytics(
     thread_id = request.thread_id or f"{active_data_source_id}:{uuid4()}"
     selected_model_profile = settings.resolve_model_profile(request.model_profile)
     # Per request, because the planner must use the model this request selected.
-    intent_planner = (
-        build_metric_intent_planner(metric_retriever, llm_gateway)
-        if metric_retriever is not None
-        else None
-    )
+    intent_planner = build_metric_intent_planner(knowledge.retriever, llm_gateway)
     graph = build_graph(
         db_gateway=db_gateway,
         llm_gateway=llm_gateway,
@@ -345,7 +324,7 @@ async def query_analytics(
         semantic_gateway=semantic_gateway,
         sql_generation_provider=settings.sql_generation_provider,
         metric_gateway=metric_gateway,
-        metric_registry=cast(Any, _metric_knowledge.get("registry")),
+        metric_registry=knowledge.registry,
         data_source_id=active_data_source_id,
         metric_intent_planner=intent_planner,
         enable_query_router=True,

@@ -22,7 +22,7 @@ from app.api.routes import (
     get_authenticated_identity,
     get_authorization_gateway,
     get_database_gateway,
-    get_metric_retriever,
+    get_knowledge_runtime,
 )
 from app.authentication.gateway import UserIdentity
 from app.authorization.gateway import AuthorizationGateway, build_authorization_request
@@ -30,6 +30,7 @@ from app.config import Settings, get_settings
 from app.data.gateway import DatabaseGateway
 from app.knowledge.candidates import CandidateStatus
 from app.knowledge.contracts import ApprovalStatus, DataSourceStatus
+from app.knowledge.runtime import KnowledgeRuntime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -130,7 +131,6 @@ class QueryExampleView(StrictPayload):
 
 async def require_knowledge_reviewer(
     identity: Annotated[UserIdentity, Depends(get_authenticated_identity)],
-    _knowledge: Annotated[object | None, Depends(get_metric_retriever)],
     authorization_gateway: Annotated[
         AuthorizationGateway, Depends(get_authorization_gateway)
     ],
@@ -142,7 +142,7 @@ async def require_knowledge_reviewer(
     The message is identical whether the identity lacks the capability or the
     resource does not exist, so probing cannot map what is here.
     """
-    del settings, _knowledge
+    del settings
     decision = await authorization_gateway.authorize(
         build_authorization_request(
             identity=identity,
@@ -161,11 +161,10 @@ async def require_knowledge_reviewer(
 @router.get("/data-sources", response_model=list[DataSourceSummary])
 async def list_data_sources(
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[DataSourceSummary]:
     """The registered datasources this deployment can answer from."""
-    from app.api.routes import _metric_knowledge
-
-    registry = _metric_knowledge.get("registry")
+    registry = knowledge.registry
     certified = 0
     if registry is not None:
         certified = len(await registry.certified(DEFAULT_DATA_SOURCE_ID))
@@ -186,6 +185,7 @@ async def list_data_sources(
 async def list_semantics(
     data_source_id: UUID,
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
     status: ApprovalStatus | None = None,
 ) -> list[SemanticProposalView]:
     """Semantic proposals and confirmed mappings for one datasource."""
@@ -197,11 +197,10 @@ async def list_semantics(
 async def list_clusters(
     data_source_id: UUID,
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[ClusterView]:
     """Recurring question clusters. Summaries only, never raw question logs."""
-    from app.api.routes import _metric_knowledge
-
-    memory = _metric_knowledge.get("memory")
+    memory = knowledge.memory
     if memory is None:
         return []
     return [
@@ -223,10 +222,9 @@ async def list_clusters(
 async def list_candidates(
     data_source_id: UUID,
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[CandidateView]:
-    from app.api.routes import _metric_knowledge
-
-    store = _metric_knowledge.get("candidates")
+    store = knowledge.candidates
     if store is None:
         return []
     return [_candidate_view(candidate) for candidate in await store.list(data_source_id)]
@@ -238,13 +236,13 @@ async def review_candidate(
     candidate_id: UUID,
     decision: ReviewDecision,
     identity: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> CandidateView:
     """Approve or reject a candidate. Approval runs full validation."""
-    from app.api.routes import _metric_knowledge
     from app.knowledge.candidates import CandidateReview, CandidateReviewError
 
-    store = _metric_knowledge.get("candidates")
-    registry = _metric_knowledge.get("registry")
+    store = knowledge.candidates
+    registry = knowledge.registry
     if store is None or registry is None:
         raise HTTPException(status_code=404, detail="No candidate to review.")
 
@@ -276,10 +274,9 @@ async def review_candidate(
 async def list_certified_metrics(
     data_source_id: UUID,
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[CertifiedMetricView]:
-    from app.api.routes import _metric_knowledge
-
-    registry = _metric_knowledge.get("registry")
+    registry = knowledge.registry
     if registry is None:
         return []
     return [
@@ -306,10 +303,9 @@ async def list_certified_metrics(
 async def list_query_examples(
     data_source_id: UUID,
     _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> list[QueryExampleView]:
-    from app.api.routes import _metric_knowledge
-
-    guidance = _metric_knowledge.get("guidance")
+    guidance = knowledge.guidance
     if guidance is None:
         return []
     return [
