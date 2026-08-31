@@ -27,12 +27,13 @@ from app.api.routes import (
 from app.authentication.gateway import UserIdentity
 from app.authorization.gateway import AuthorizationGateway, build_authorization_request
 from app.config import Settings, get_settings
-from app.data.gateway import DatabaseGateway
+from app.data.gateway import DatabaseGateway, TableMetadata
 from app.knowledge.candidates import CandidateStatus
 from app.knowledge.contracts import ApprovalStatus, DataSourceStatus
 from app.knowledge.runtime import KnowledgeRuntime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.profiles import DEFAULT_MODEL_PROFILE
+from app.security.sql_validation import SQLValidator
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -691,17 +692,19 @@ async def review_candidate(
                 data_source_id, candidate_id, reviewed_by=identity.subject_id
             )
         elif candidate.candidate_type.value == "QUERY_EXAMPLE":
-            # The worker can propose one of these, and there is nowhere for it
-            # to go: an approved example carries the SQL that answered the
-            # question, and question memory deliberately keeps no SQL. Saying
-            # so is better than the previous message, which claimed the
-            # candidate "is not a metric" and sent the reviewer looking for a
-            # mistake they had not made.
-            raise CandidateReviewError(
-                "A proposed query example cannot be approved yet: an approved "
-                "example carries the validated SQL from the run it came from, "
-                "and question memory does not retain SQL. Reject it, or add "
-                "the example from a request you have seen succeed."
+            # Approving an example is a claim it still works, so it is checked
+            # against the schema this reviewer is authorized for right now --
+            # not the one it ran against.
+            validator, tables, fingerprint = await _current_schema_scope(
+                knowledge, data_source_id
+            )
+            await review.approve_query_example(
+                data_source_id,
+                candidate_id,
+                validator=validator,
+                authorized_tables=tables,
+                current_schema_fingerprint=fingerprint,
+                reviewed_by=identity.subject_id,
             )
         else:
             await review.approve_metric(
@@ -835,6 +838,37 @@ def _instruction_view(instruction: Any) -> BusinessInstructionView:
             instruction.approved_at.isoformat() if instruction.approved_at else None
         ),
     )
+
+
+async def _current_schema_scope(
+    knowledge: KnowledgeRuntime, data_source_id: UUID
+) -> tuple[SQLValidator, list[TableMetadata], str | None]:
+    """The datasource's schema as it is now, for re-validating a statement.
+
+    Reads schema metadata only. Nothing here executes anything, and the
+    statement being reviewed is never run: what is being asked is whether it
+    would still pass the checks a live request has to pass.
+    """
+    from app.knowledge.execution import DataSourceUnavailableError
+
+    if knowledge.execution is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This deployment cannot verify the datasource's schema.",
+        )
+    try:
+        context = await knowledge.execution.context_for(data_source_id)
+    except DataSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The selected data source is unavailable.",
+        ) from exc
+    tables = await context.gateway.search_schema("")
+    validator = SQLValidator(
+        max_rows=get_settings().query_row_limit,
+        allowed_schemas=frozenset(context.allowed_schemas),
+    )
+    return validator, tables, context.data_source.schema_fingerprint
 
 
 def _candidate_view(candidate: Any) -> CandidateView:

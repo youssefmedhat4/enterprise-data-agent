@@ -35,20 +35,22 @@ logger = logging.getLogger(__name__)
 _COLUMNS = """
     id, data_source_id, candidate_type, display_name, description, rationale,
     proposal_payload, structural_fingerprint, cluster_id, evidence_count,
-    successful_evidence_count, status, rejection_reason, version, created_at,
-    reviewed_at, reviewed_by
+    successful_evidence_count, evidence_sql, evidence_schema_fingerprint,
+    status, rejection_reason, version, created_at, reviewed_at, reviewed_by
 """
 
 _UPSERT = """
     INSERT INTO knowledge.knowledge_candidates
         (id, data_source_id, candidate_type, display_name, description,
          proposal_payload, structural_fingerprint, cluster_id, evidence_count,
-         successful_evidence_count, status, rejection_reason, version,
+         successful_evidence_count, evidence_sql, evidence_schema_fingerprint,
+         status, rejection_reason, version,
          created_at, reviewed_at, reviewed_by)
     VALUES
         (%(id)s, %(data_source_id)s, %(candidate_type)s, %(display_name)s,
          %(description)s, %(payload)s, %(fingerprint)s, %(cluster_id)s,
-         %(evidence_count)s, %(successful_evidence_count)s, %(status)s,
+         %(evidence_count)s, %(successful_evidence_count)s, %(evidence_sql)s,
+         %(evidence_fingerprint)s, %(status)s,
          %(rejection_reason)s, %(version)s, %(created_at)s, %(reviewed_at)s,
          %(reviewed_by)s)
     ON CONFLICT (data_source_id, candidate_type, structural_fingerprint)
@@ -58,6 +60,8 @@ _UPSERT = """
         proposal_payload = EXCLUDED.proposal_payload,
         evidence_count = EXCLUDED.evidence_count,
         successful_evidence_count = EXCLUDED.successful_evidence_count,
+        evidence_sql = EXCLUDED.evidence_sql,
+        evidence_schema_fingerprint = EXCLUDED.evidence_schema_fingerprint,
         status = EXCLUDED.status,
         rejection_reason = EXCLUDED.rejection_reason,
         version = EXCLUDED.version,
@@ -93,6 +97,8 @@ class PostgresCandidateStore:
                     "cluster_id": candidate.cluster_id,
                     "evidence_count": candidate.evidence_count,
                     "successful_evidence_count": candidate.successful_evidence_count,
+                    "evidence_sql": candidate.evidence_sql,
+                    "evidence_fingerprint": candidate.evidence_schema_fingerprint,
                     "status": candidate.status.value,
                     "rejection_reason": candidate.rejection_reason,
                     "version": candidate.version,
@@ -197,6 +203,8 @@ def _to_candidate(row: dict[str, Any]) -> KnowledgeCandidate | None:
         cluster_id=row["cluster_id"],
         evidence_count=row["evidence_count"],
         successful_evidence_count=row["successful_evidence_count"],
+        evidence_sql=row["evidence_sql"],
+        evidence_schema_fingerprint=row["evidence_schema_fingerprint"],
         status=CandidateStatus(row["status"]),
         rejection_reason=row["rejection_reason"],
         version=row["version"],

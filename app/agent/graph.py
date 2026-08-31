@@ -45,13 +45,18 @@ from app.governance.gateway import (
 )
 from app.knowledge.composition import CompositionError, MetricResultSlice, compose
 from app.knowledge.discovery import SemanticModel
+from app.knowledge.evidence import (
+    ExecutionEvidence,
+    ExecutionEvidenceStore,
+    qualifies_as_evidence,
+)
 from app.knowledge.fingerprints import adhoc_fingerprint, governed_fingerprint
 from app.knowledge.guidance import (
     ApprovedQueryExample,
     BusinessInstruction,
     InMemoryGuidanceStore,
 )
-from app.knowledge.memory import QuestionEvent, QuestionMemory
+from app.knowledge.memory import QuestionCluster, QuestionEvent, QuestionMemory
 from app.knowledge.metrics import MetricRegistry
 from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
@@ -112,6 +117,8 @@ def build_graph(
     semantic_model: SemanticModel | None = None,
     guidance_store: InMemoryGuidanceStore | None = None,
     candidate_trigger: CandidateTrigger | None = None,
+    execution_evidence: ExecutionEvidenceStore | None = None,
+    schema_fingerprint: str | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     enable_query_router: bool = False,
     authorization_gateway: AuthorizationGateway | None = None,
@@ -157,7 +164,11 @@ def build_graph(
         "ground_answer": _ground_answer(db_gateway, llm_gateway),
         "finalize_sql_result": _finalize_sql_result(db_gateway),
         "record_context": _record_context(
-            question_memory, data_source_id, candidate_trigger
+            question_memory,
+            data_source_id,
+            candidate_trigger,
+            execution_evidence,
+            schema_fingerprint,
         ),
     }
     for name, node in nodes.items():
@@ -1544,6 +1555,8 @@ def _record_context(
     memory: QuestionMemory | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     candidate_trigger: CandidateTrigger | None = None,
+    evidence: ExecutionEvidenceStore | None = None,
+    schema_fingerprint: str | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         plan = state.get("analysis_plan", AnalysisPlan())
@@ -1579,7 +1592,12 @@ def _record_context(
         )
         if memory is not None:
             await _remember_question(
-                memory, state, data_source_id, candidate_trigger
+                memory,
+                state,
+                data_source_id,
+                candidate_trigger,
+                evidence,
+                schema_fingerprint,
             )
         return {"analytical_context": context, "conversation_turns": [turn]}
 
@@ -1591,6 +1609,8 @@ async def _remember_question(
     state: AgentState,
     data_source_id: UUID,
     candidate_trigger: CandidateTrigger | None = None,
+    evidence: ExecutionEvidenceStore | None = None,
+    schema_fingerprint: str | None = None,
 ) -> None:
     """Record what was asked and what shape answered it. Never the answer.
 
@@ -1637,6 +1657,9 @@ async def _remember_question(
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("question memory record failed: %s", type(exc).__name__)
         return
+    await _record_execution_evidence(
+        evidence, state, data_source_id, cluster, route, schema_fingerprint
+    )
     if candidate_trigger is not None:
         # One guarded INSERT when a threshold is newly crossed. Generation
         # itself happens later, when a worker claims the job, so no model is
@@ -1644,6 +1667,49 @@ async def _remember_question(
         await candidate_trigger.consider(
             data_source_id=data_source_id, cluster=cluster
         )
+
+
+async def _record_execution_evidence(
+    evidence: ExecutionEvidenceStore | None,
+    state: AgentState,
+    data_source_id: UUID,
+    cluster: QuestionCluster,
+    route: str,
+    schema_fingerprint: str | None,
+) -> None:
+    """Keep the statement that answered this, if the run earns it.
+
+    This is the only point where the system knows all of it at once: that the
+    SQL passed validation, that it executed, and that grounding accepted the
+    answer built from its result. A query example approved later rests on
+    exactly this, which is why it is recorded here rather than reconstructed
+    from prose afterwards.
+
+    Deliberately separate from question memory, which stays free of SQL. Like
+    remembering, this must never break answering.
+    """
+    execution = state.get("execution_metadata")
+    validated_sql = state.get("validated_sql")
+    if evidence is None or not qualifies_as_evidence(
+        route=route,
+        validated_sql=validated_sql,
+        succeeded=execution is not None and execution.status == "completed",
+        validated=validated_sql is not None,
+        grounded=bool(state.get("claims")),
+    ):
+        return
+    try:
+        await evidence.record(
+            ExecutionEvidence(
+                data_source_id=data_source_id,
+                cluster_id=cluster.id,
+                question_text=state["question"],
+                validated_sql=validated_sql or "",
+                schema_fingerprint=schema_fingerprint,
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("execution evidence record failed: %s", type(exc).__name__)
 
 
 def _model_aliases(state: AgentState) -> list[str]:

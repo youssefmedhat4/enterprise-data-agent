@@ -25,12 +25,17 @@ from app.embeddings.factory import build_embedding_gateway
 from app.knowledge.candidates import InMemoryCandidateStore
 from app.knowledge.database import KnowledgeDatabase, KnowledgeDatabaseError
 from app.knowledge.datasources import PostgresDataSourceRegistry
+from app.knowledge.evidence import (
+    ExecutionEvidenceStore,
+    InMemoryExecutionEvidenceStore,
+)
 from app.knowledge.execution import DataSourceRuntimeProvider
 from app.knowledge.guidance import InMemoryGuidanceStore
 from app.knowledge.jobs import PostgresGenerationJobQueue
 from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricRegistry
 from app.knowledge.postgres_candidates import PostgresCandidateStore
+from app.knowledge.postgres_evidence import PostgresExecutionEvidenceStore
 from app.knowledge.postgres_guidance import PostgresGuidanceStore
 from app.knowledge.postgres_memory import PostgresQuestionMemory
 from app.knowledge.postgres_metrics import PostgresMetricRegistry
@@ -73,6 +78,10 @@ class KnowledgeRuntime:
     guidance: Any
     semantics: SemanticRepository | None
     jobs: PostgresGenerationJobQueue | None
+    #: Validated SQL from qualifying runs -- the only thing a query example may
+    #: be promoted from. Deliberately separate from `memory`, which stays free
+    #: of SQL.
+    evidence: ExecutionEvidenceStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -150,6 +159,7 @@ async def build_knowledge_runtime(
         guidance=PostgresGuidanceStore(pool),
         semantics=PostgresSemanticRepository(pool),
         jobs=PostgresGenerationJobQueue(pool),
+        evidence=PostgresExecutionEvidenceStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -175,6 +185,7 @@ async def _in_memory_runtime(
         guidance=InMemoryGuidanceStore(),
         semantics=None,
         jobs=None,
+        evidence=InMemoryExecutionEvidenceStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,

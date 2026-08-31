@@ -209,6 +209,9 @@ async def build_worker(
         llm=build_llm_gateway(settings, model_profile=DEFAULT_MODEL_PROFILE),
         store=runtime.candidates,  # type: ignore[attr-defined]
         registry=runtime.registry,  # type: ignore[attr-defined]
+        # Without this a query example can be proposed and never approved,
+        # because approval needs the statement a run actually validated.
+        evidence=getattr(runtime, "evidence", None),
     )
     return KnowledgeJobWorker(
         settings=settings,

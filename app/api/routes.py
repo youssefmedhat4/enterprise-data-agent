@@ -377,6 +377,7 @@ async def query_analytics(
     # cannot point execution at a database of its choosing.
     execution_gateway = db_gateway
     execution_schemas = settings.database_allowed_schemas
+    active_schema_fingerprint: str | None = None
     if knowledge.execution is not None:
         try:
             context = await knowledge.execution.context_for(
@@ -395,6 +396,9 @@ async def query_analytics(
             ) from exc
         execution_gateway = context.gateway
         execution_schemas = context.allowed_schemas
+        # The schema this answer was produced against, recorded with any
+        # execution evidence so a reviewer can see which version it came from.
+        active_schema_fingerprint = context.data_source.schema_fingerprint
     # Thread identity carries the datasource, so a thread started against one
     # database cannot supply prior context to another. Switching datasource in
     # the client yields a different thread key and therefore a fresh context.
@@ -442,6 +446,12 @@ async def query_analytics(
             if settings.question_memory_enabled and knowledge.jobs is not None
             else None
         ),
+        # The validated statement of a run that succeeded and grounded. Kept
+        # apart from question memory, which stays free of SQL.
+        execution_evidence=(
+            knowledge.evidence if settings.question_memory_enabled else None
+        ),
+        schema_fingerprint=active_schema_fingerprint,
         enable_query_router=True,
         authorization_gateway=authorization_gateway,
         governance_gateway=governance_gateway,

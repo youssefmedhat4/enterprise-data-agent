@@ -248,6 +248,14 @@ def _stale_example(example: ApprovedQueryExample) -> ApprovedQueryExample:
 
 
 def _tables_in(sql: str) -> frozenset[str]:
+    """Real tables the statement reads, for the authorization filter.
+
+    A CTE name looks exactly like a table to the parser, and counting one made
+    every example that uses `WITH` fail the authorization check against tables
+    the caller can perfectly well read -- so the examples worth keeping were
+    the ones most reliably withheld. A CTE names a result computed inside the
+    same statement; there is nothing to authorize.
+    """
     import sqlglot
     from sqlglot import exp
 
@@ -257,10 +265,17 @@ def _tables_in(sql: str) -> frozenset[str]:
         return frozenset()
     if statement is None:
         return frozenset()
+    local = {
+        cte.alias_or_name.casefold()
+        for cte in statement.find_all(exp.CTE)
+        if cte.alias_or_name
+    }
     return frozenset(
-        f"{table.db}.{table.name}".strip(".").casefold()
+        identifier
         for table in statement.find_all(exp.Table)
         if table.name
+        and (identifier := f"{table.db}.{table.name}".strip(".").casefold())
+        not in local
     )
 
 

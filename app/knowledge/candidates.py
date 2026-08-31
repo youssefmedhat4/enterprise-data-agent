@@ -27,13 +27,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.data.gateway import TableMetadata
+from app.knowledge.evidence import ExecutionEvidenceStore
 from app.knowledge.expressions import (
     ExpressionError,
     ExpressionNode,
@@ -42,7 +45,11 @@ from app.knowledge.expressions import (
     referenced_metrics,
     validate_expression,
 )
-from app.knowledge.guidance import BusinessInstruction
+from app.knowledge.guidance import (
+    ApprovedQueryExample,
+    BusinessInstruction,
+    GuidanceError,
+)
 from app.knowledge.memory import QuestionCluster
 from app.knowledge.metrics import (
     MetricDimensionSpec,
@@ -51,6 +58,7 @@ from app.knowledge.metrics import (
     RegisteredMetric,
 )
 from app.llm.gateway import LLMGateway
+from app.security.sql_validation import SQLValidator
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +186,12 @@ class KnowledgeCandidate:
     cluster_id: UUID | None = None
     evidence_count: int = 0
     successful_evidence_count: int = 0
+    #: For a query example: the statement a real run validated and executed,
+    #: copied here at generation time so a reviewer reads a fixed statement
+    #: rather than whatever the latest run happened to produce. It never comes
+    #: from the model -- prose about what SQL was used is not evidence.
+    evidence_sql: str | None = None
+    evidence_schema_fingerprint: str | None = None
     status: CandidateStatus = CandidateStatus.PROPOSED
     rejection_reason: str | None = None
     version: int = 1
@@ -277,11 +291,13 @@ class CandidateGenerator:
         llm: LLMGateway,
         store: CandidateStore,
         registry: MetricRegistry,
+        evidence: ExecutionEvidenceStore | None = None,
         model_alias: str = "analytics-general",
     ) -> None:
         self._llm = llm
         self._store = store
         self._registry = registry
+        self._evidence = evidence
         self._model_alias = model_alias
 
     async def propose_for_cluster(
@@ -333,6 +349,28 @@ class CandidateGenerator:
                 logger.info("candidate proposal refused: %s", type(exc).__name__)
                 return None
 
+        evidence_sql: str | None = None
+        evidence_fingerprint: str | None = None
+        if isinstance(payload, QueryExampleProposal):
+            evidence = (
+                await self._evidence.for_cluster(data_source_id, cluster.id)
+                if self._evidence is not None
+                else None
+            )
+            if evidence is None:
+                # Proposing an example nobody could ever approve wastes a
+                # reviewer's attention and leaves a dead entry in the queue. An
+                # approved example carries the statement a run actually
+                # validated, and without that there is nothing to promote.
+                logger.info(
+                    "query example proposal skipped: no validated execution "
+                    "evidence for cluster %s",
+                    cluster.id,
+                )
+                return None
+            evidence_sql = evidence.validated_sql
+            evidence_fingerprint = evidence.schema_fingerprint
+
         candidate = KnowledgeCandidate(
             data_source_id=data_source_id,
             candidate_type=CandidateType(payload.candidate_type),
@@ -343,6 +381,8 @@ class CandidateGenerator:
             cluster_id=cluster.id,
             evidence_count=cluster.occurrence_count,
             successful_evidence_count=cluster.successful_count,
+            evidence_sql=evidence_sql,
+            evidence_schema_fingerprint=evidence_fingerprint,
         )
         return await self._store.upsert(candidate)
 
@@ -495,6 +535,90 @@ class CandidateReview:
         )
         return stored
 
+    async def approve_query_example(
+        self,
+        data_source_id: UUID,
+        candidate_id: UUID,
+        *,
+        validator: SQLValidator,
+        authorized_tables: list[TableMetadata],
+        current_schema_fingerprint: str | None = None,
+        reviewed_by: str | None = None,
+    ) -> ApprovedQueryExample:
+        """Promote a reviewed example, re-checking it against today's database.
+
+        The statement was validated when it ran, but against the schema and
+        authorization of that moment. A column since dropped, a table no longer
+        readable by this caller, a datasource rescanned -- any of those makes
+        the example wrong to keep, and none of them announce themselves. So it
+        is validated again here, against the schema this reviewer is authorized
+        for now, and refused if it no longer fits.
+
+        Re-validating is a stricter test than comparing schema fingerprints. A
+        fingerprint changes when any table anywhere in the datasource changes,
+        which would discard examples that are still perfectly correct; what
+        matters is whether *this* statement still works.
+        """
+        candidate = await self._require(data_source_id, candidate_id)
+        if candidate.status is CandidateStatus.REJECTED:
+            raise CandidateReviewError("A rejected candidate cannot be approved.")
+        proposal = candidate.proposal
+        if not isinstance(proposal, QueryExampleProposal):
+            raise CandidateReviewError(
+                f"Candidate {candidate.candidate_type.value} is not a query example."
+            )
+        if candidate.data_source_id != data_source_id:  # pragma: no cover - scoped
+            raise CandidateReviewError("The candidate belongs to another datasource.")
+        if self._guidance is None:
+            raise CandidateReviewError("Query-example guidance is not configured.")
+        approve = getattr(self._guidance, "approve_example", None)
+        if approve is None:
+            raise CandidateReviewError("Query-example guidance is not configured.")
+        sql = (candidate.evidence_sql or "").strip()
+        if not sql:
+            raise CandidateReviewError(
+                "This candidate carries no validated execution evidence, so "
+                "there is no statement to approve."
+            )
+
+        result = validator.validate(sql, allowed_schema=authorized_tables)
+        if not result.is_valid:
+            code = result.error_code.value if result.error_code else "invalid"
+            raise CandidateReviewError(
+                "The recorded statement no longer fits this datasource's "
+                f"current authorized schema ({code}), so it cannot become an "
+                "approved example."
+            )
+
+        example = ApprovedQueryExample(
+            data_source_id=data_source_id,
+            question=proposal.question,
+            # The statement as it ran, not the validator's rewritten form: an
+            # example is context a model reads, and the original is what the
+            # reviewer looked at and agreed to.
+            query_pattern=sql,
+            semantic_plan=proposal.semantic_plan,
+            schema_fingerprint=current_schema_fingerprint,
+            source_cluster_id=candidate.cluster_id,
+        )
+        try:
+            stored = await approve(
+                example,
+                was_successful=True,
+                was_validated=True,
+                current_schema_fingerprint=current_schema_fingerprint,
+            )
+        except GuidanceError as exc:
+            raise CandidateReviewError(str(exc)) from exc
+        await self._store.upsert(
+            _replace(
+                candidate,
+                status=CandidateStatus.APPROVED,
+                reviewed_by=reviewed_by,
+            )
+        )
+        return cast("ApprovedQueryExample", stored)
+
     async def approve_business_rule(
         self,
         data_source_id: UUID,
@@ -572,26 +696,16 @@ def _assert_dimensions_are_shared(
 
 
 def _replace(candidate: KnowledgeCandidate, **changes: object) -> KnowledgeCandidate:
-    values = {
-        "data_source_id": candidate.data_source_id,
-        "candidate_type": candidate.candidate_type,
-        "display_name": candidate.display_name,
-        "structural_fingerprint": candidate.structural_fingerprint,
-        "proposal": candidate.proposal,
-        "id": candidate.id,
-        "description": candidate.description,
-        "cluster_id": candidate.cluster_id,
-        "evidence_count": candidate.evidence_count,
-        "successful_evidence_count": candidate.successful_evidence_count,
-        "status": candidate.status,
-        "rejection_reason": candidate.rejection_reason,
-        "version": candidate.version,
-        "created_at": candidate.created_at,
-        "reviewed_at": datetime.now(UTC),
-        "reviewed_by": candidate.reviewed_by,
-    }
-    values.update(changes)
-    return KnowledgeCandidate(**values)  # type: ignore[arg-type]
+    """A reviewed copy, carrying every field the original had.
+
+    Listing the fields by hand here silently dropped whichever ones were added
+    later: a candidate kept its evidence right up until a reviewer approved it,
+    and then lost it. `dataclasses.replace` cannot make that mistake.
+
+    Reviewing always stamps the time, unless the caller says otherwise.
+    """
+    changes.setdefault("reviewed_at", datetime.now(UTC))
+    return dataclass_replace(candidate, **changes)  # type: ignore[arg-type]
 
 
 def _generation_system_prompt() -> str:
