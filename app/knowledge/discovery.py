@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -140,6 +140,12 @@ class SemanticModel:
         )
 
 
+#: Tables per discovery call. Asking for a whole schema at once ties the
+#: response length to the size of the database, so anything past a handful
+#: of tables exceeds the output limit and returns truncated, invalid JSON.
+_DISCOVERY_BATCH_SIZE = 3
+
+
 class SemanticDiscoveryService:
     """Proposes a semantic model for a datasource from schema metadata."""
 
@@ -153,16 +159,28 @@ class SemanticDiscoveryService:
         data_source_id: UUID,
         snapshot: SchemaSnapshot,
     ) -> SemanticModel:
-        proposals = await self._llm.generate_structured(
-            model_alias=self._model_alias,
-            system=_DISCOVERY_SYSTEM_PROMPT,
-            user=_discovery_user_prompt(snapshot),
-            response_model=SemanticProposals,
-        )
+        merged = SemanticProposals()
+        for batch in _batched(list(snapshot.tables), _DISCOVERY_BATCH_SIZE):
+            # Two passes per batch. Asked for entities, attributes and
+            # relationships at once, the model answers the structural part and
+            # treats per-column attributes as optional, so whole tables come
+            # back with none. Asking for attributes on their own removes that
+            # competition, which is why coverage is complete rather than
+            # incidental.
+            for focus in ("structure", "attributes"):
+                proposals = await self._llm.generate_structured(
+                    model_alias=self._model_alias,
+                    system=_DISCOVERY_SYSTEM_PROMPT,
+                    user=_discovery_user_prompt(snapshot, batch, focus=focus),
+                    response_model=SemanticProposals,
+                )
+                merged = _merge_proposals(
+                    merged, SemanticProposals.model_validate(proposals)
+                )
         return build_semantic_model(
             data_source_id=data_source_id,
             snapshot=snapshot,
-            proposals=SemanticProposals.model_validate(proposals),
+            proposals=merged,
         )
 
 
@@ -537,11 +555,103 @@ _DISCOVERY_SYSTEM_PROMPT = (
 )
 
 
-def _discovery_user_prompt(snapshot: SchemaSnapshot) -> str:
+def _merge_proposals(
+    left: SemanticProposals, right: SemanticProposals
+) -> SemanticProposals:
+    """Combine batch results, keeping the most confident of each duplicate.
+
+    Batching makes duplicates ordinary rather than exceptional: a relationship
+    whose two ends fall in different batches is proposed by both, and an entity
+    can be named again as context for a later batch. Identity is the physical
+    object, so the second sighting updates rather than doubles.
+    """
+    entities: dict[str, EntityProposal] = {}
+    for proposal in (*left.entities, *right.entities):
+        table_key = proposal.table_identifier.casefold()
+        seen_entity = entities.get(table_key)
+        if seen_entity is None or proposal.confidence > seen_entity.confidence:
+            entities[table_key] = proposal
+
+    attributes: dict[tuple[str, str], AttributeProposal] = {}
+    for attribute in (*left.attributes, *right.attributes):
+        column_key = (
+            attribute.table_identifier.casefold(),
+            attribute.column_name.casefold(),
+        )
+        seen_attribute = attributes.get(column_key)
+        if seen_attribute is None or attribute.confidence > seen_attribute.confidence:
+            attributes[column_key] = attribute
+
+    relationships: dict[tuple[str, str, str, str], RelationshipProposal] = {}
+    for relationship in (*left.relationships, *right.relationships):
+        join_key = (
+            relationship.from_table.casefold(),
+            relationship.from_column.casefold(),
+            relationship.to_table.casefold(),
+            relationship.to_column.casefold(),
+        )
+        seen_join = relationships.get(join_key)
+        if seen_join is None or relationship.confidence > seen_join.confidence:
+            relationships[join_key] = relationship
+
+    return SemanticProposals(
+        entities=list(entities.values()),
+        attributes=list(attributes.values()),
+        relationships=list(relationships.values()),
+    )
+
+
+def _batched(items: list[Any], size: int) -> list[list[Any]]:
+    return [items[start : start + size] for start in range(0, len(items), size)]
+
+
+def _discovery_user_prompt(
+    snapshot: SchemaSnapshot,
+    batch: list[Any] | None = None,
+    *,
+    focus: str = "all",
+) -> str:
     import json
 
+    payload = snapshot.discovery_payload()
+    if batch is None:
+        return (
+            "Propose semantic entities, attributes, and relationships for this "
+            "schema.\n\nSchema metadata JSON:\n"
+            + json.dumps(payload, indent=2, sort_keys=True)
+        )
+
+    wanted = {table.identifier for table in batch}
+    scoped = dict(payload)
+    scoped["tables"] = [
+        table
+        for table in payload.get("tables", [])
+        if table.get("identifier") in wanted
+    ]
+    every_table = sorted(table.identifier for table in snapshot.tables)
+    if focus == "attributes":
+        instruction = (
+            "Propose one attribute for EVERY column of every table listed "
+            "below, including codes, flags and dates. Return attributes only; "
+            "leave entities and relationships empty. Mark the column that "
+            "identifies a row as the identifier."
+        )
+    elif focus == "structure":
+        instruction = (
+            "Propose semantic entities and relationships for the tables below. "
+            "Return entities and relationships only; leave attributes empty. "
+            "Include a relationship even where no foreign key is declared, if "
+            "the columns clearly correspond."
+        )
+    else:
+        instruction = (
+            "Propose semantic entities, attributes, and relationships for the "
+            "tables below only."
+        )
     return (
-        "Propose semantic entities, attributes, and relationships for this "
-        "schema.\n\nSchema metadata JSON:\n"
-        + json.dumps(snapshot.discovery_payload(), indent=2, sort_keys=True)
+        instruction
+        + "\n\nEvery table in this database, for context when a relationship "
+        f"points outside the group:\n{', '.join(every_table)}\n\n"
+        "Tables to describe:\n"
+        + json.dumps(scoped, indent=2, sort_keys=True)
     )

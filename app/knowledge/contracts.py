@@ -52,6 +52,9 @@ class DataSource(StrictContract):
     database_type: str = Field(min_length=1, max_length=50)
     connection_ref: str = Field(min_length=1, max_length=200)
     status: DataSourceStatus = DataSourceStatus.REGISTERED
+    #: Schemas this database exposes. Scoped per datasource rather than per
+    #: process, so one database's configuration cannot govern another's.
+    allowed_schemas: tuple[str, ...] = ("analytics",)
     schema_fingerprint: str | None = None
     is_default: bool = False
     created_at: datetime

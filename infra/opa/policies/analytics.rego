@@ -5,6 +5,10 @@ import rego.v1
 default allow := false
 default debug_allowed := false
 
+# Authority over what the data is defined to mean, which is separate from
+# permission to read it. An analyst grant never carries this.
+default knowledge_review_allowed := false
+
 matching_grants := [grant |
     some role in input.identity.roles
     grant := data.roles[role]
@@ -83,10 +87,16 @@ debug_allowed if {
     object.get(grant, "debug", false)
 }
 
+knowledge_review_allowed if {
+    some grant in matching_grants
+    object.get(grant, "knowledge_review", false)
+}
+
 decision := {
     "allow": allow,
     "allowed_schemas": allowed_schemas,
     "allowed_tables": allowed_tables,
     "allowed_metrics": allowed_metrics,
     "debug_allowed": debug_allowed,
+    "knowledge_review_allowed": knowledge_review_allowed,
 }

@@ -134,6 +134,7 @@ class LiteLLMGateway(LLMGateway):
                 **request,
             )
             self._record_response_metrics(response, configured_model=model)
+            self._assert_not_truncated(response)
             message = self._first_message(response)
             parsed = self._field(message, "parsed")
             if parsed is not None:
@@ -284,6 +285,25 @@ class LiteLLMGateway(LLMGateway):
         from litellm import acompletion
 
         return cast(CompletionCallable, acompletion)
+
+    def _assert_not_truncated(self, response: Any) -> None:
+        """Fail clearly when the model ran out of output budget.
+
+        A truncated response is well-formed text simply cut off mid-JSON.
+        Reporting that as an invalid structured response sends the reader
+        hunting a malformed model or a bad schema when the real fix is to raise
+        the output limit. Reasoning models make this common, because thinking
+        tokens are spent from the same budget.
+        """
+        choices = self._field(response, "choices")
+        if not isinstance(choices, list) or not choices:
+            return
+        if self._field(choices[0], "finish_reason") != "length":
+            return
+        raise InvalidStructuredModelOutputError(
+            "The model reached its output token limit before completing a "
+            "structured response. Raise LLM_MAX_OUTPUT_TOKENS."
+        )
 
     def _first_message(self, response: Any) -> Any:
         choices = self._field(response, "choices")

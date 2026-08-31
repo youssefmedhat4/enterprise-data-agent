@@ -201,6 +201,9 @@ class RegisterDataSource(StrictPayload):
     name: str = Field(min_length=1, max_length=200)
     database_type: str = Field(default="postgres", max_length=50)
     connection_ref: str = Field(min_length=1, max_length=200)
+    #: Schemas this database exposes. Scoped here rather than globally so one
+    #: datasource's configuration cannot govern another's.
+    allowed_schemas: list[str] = Field(default_factory=lambda: ["analytics"])
 
 
 class ScanSummaryView(StrictPayload):
@@ -252,6 +255,7 @@ async def register_data_source(
             name=payload.name,
             database_type=payload.database_type,
             connection_ref=payload.connection_ref,
+            allowed_schemas=tuple(payload.allowed_schemas),
         )
     except (DataSourceError, ValueError) as exc:
         # Covers the contract validator refusing a pasted DSN.
@@ -273,7 +277,11 @@ async def scan_data_source(
     Rescanning preserves confirmed mappings and marks only what broke, so a
     schema change never silently discards review.
     """
-    from app.knowledge.datasources import DataSourceError
+    from app.data.factory import build_database_gateway_for
+    from app.knowledge.datasources import (
+        DataSourceConnectionResolver,
+        DataSourceError,
+    )
     from app.knowledge.discovery import SemanticDiscoveryService
     from app.knowledge.onboarding import DataSourceOnboardingService
 
@@ -291,14 +299,41 @@ async def scan_data_source(
         settings.resolve_model_profile(DEFAULT_MODEL_PROFILE).model_aliases.values()
     )
 
+    # Scan the datasource that was asked for, not whichever one this process
+    # happens to be configured with. Resolution stays inside the process; the
+    # DSN is never returned, logged, or stored.
     try:
-        tables = await db_gateway.search_schema("")
+        resolver = DataSourceConnectionResolver(settings)
+        scoped = build_database_gateway_for(
+            settings,
+            database_url=resolver.resolve(source.connection_ref),
+            allowed_schemas=source.allowed_schemas,
+        )
+    except DataSourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        # Type only. A connection string can appear in a driver or validation
+        # message, and this endpoint must never echo one back.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The datasource connection could not be prepared "
+                f"({type(exc).__name__})."
+            ),
+        ) from exc
+
+    try:
+        tables = await scoped.search_schema("")
     except Exception as exc:
         # Type only: a driver message can contain a DSN.
         raise HTTPException(
             status_code=502,
             detail=f"The datasource could not be read ({type(exc).__name__}).",
         ) from exc
+    finally:
+        close = getattr(scoped, "close", None)
+        if close is not None:
+            await close()
 
     service = DataSourceOnboardingService(
         discovery=SemanticDiscoveryService(llm_gateway),

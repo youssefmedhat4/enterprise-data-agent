@@ -18,6 +18,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # Second analytics database, deliberately shaped like an inherited ERP.
+  # Behind the `legacy` profile so ordinary development does not pay for a
+  # container it never queries.
+  legacy-postgres:
+    profiles: ["legacy"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: legacy_erp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      ERP_READONLY_PASSWORD: ${ERP_READONLY_PASSWORD:-erp_readonly_local}
+    ports:
+      - "${LEGACY_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - legacy_erp_data:/var/lib/postgresql/data
+      - ../postgres/legacy/001_init.sh:/docker-entrypoint-initdb.d/001_init.sh:ro
+      - ../postgres/legacy/001_legacy_erp.sql:/opt/erp-init/001_legacy_erp.sql:ro
+      - ../postgres/legacy/002_legacy_seed.sql:/opt/erp-init/002_legacy_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d legacy_erp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   checkpoint-postgres:
     # pgvector image: the internal database stores knowledge embeddings.
     # The analytics database deliberately stays on plain postgres.
@@ -129,4 +153,5 @@ services:
 
 volumes:
   enterprise_analytics_data:
+  legacy_erp_data:
   enterprise_checkpoint_data:

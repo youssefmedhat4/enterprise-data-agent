@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -64,7 +65,7 @@ class DataSourceConnectionResolver:
             url = self._settings.database_url
             if url is not None:
                 return str(url)
-        value = os.environ.get(connection_ref)
+        value = os.environ.get(connection_ref) or _from_dotenv(connection_ref)
         if value is None or not value.strip():
             raise DataSourceError(
                 f"Connection reference {connection_ref!r} resolves to nothing."
@@ -84,6 +85,7 @@ class PostgresDataSourceRegistry:
         name: str,
         database_type: str,
         connection_ref: str,
+        allowed_schemas: tuple[str, ...] = ("analytics",),
         is_default: bool = False,
     ) -> DataSource:
         """Register a datasource.
@@ -98,6 +100,7 @@ class PostgresDataSourceRegistry:
             name=name,
             database_type=database_type,
             connection_ref=connection_ref,
+            allowed_schemas=allowed_schemas,
             status=DataSourceStatus.REGISTERED,
             is_default=is_default,
             created_at=datetime.now(UTC),
@@ -109,12 +112,13 @@ class PostgresDataSourceRegistry:
         ):
             await cursor.execute(
                 "INSERT INTO knowledge.data_sources"
-                " (id, name, database_type, connection_ref, status, is_default)"
+                " (id, name, database_type, connection_ref, status, is_default,"
+                "  allowed_schemas)"
                 " VALUES (%(id)s, %(name)s, %(database_type)s, %(connection_ref)s,"
-                "  %(status)s, %(is_default)s)"
+                "  %(status)s, %(is_default)s, %(allowed_schemas)s)"
                 " RETURNING id, name, database_type, connection_ref, status,"
-                " schema_fingerprint, is_default, created_at, updated_at,"
-                " last_scanned_at",
+                " schema_fingerprint, is_default, allowed_schemas, created_at,"
+                " updated_at, last_scanned_at",
                 {
                     "id": candidate.id,
                     "name": candidate.name,
@@ -122,6 +126,7 @@ class PostgresDataSourceRegistry:
                     "connection_ref": candidate.connection_ref,
                     "status": candidate.status.value,
                     "is_default": candidate.is_default,
+                    "allowed_schemas": list(candidate.allowed_schemas),
                 },
             )
             row = cast("dict[str, Any] | None", await cursor.fetchone())
@@ -137,8 +142,8 @@ class PostgresDataSourceRegistry:
         ):
             await cursor.execute(
                 "SELECT id, name, database_type, connection_ref, status,"
-                " schema_fingerprint, is_default, created_at, updated_at,"
-                " last_scanned_at FROM knowledge.data_sources"
+                " schema_fingerprint, is_default, allowed_schemas, created_at,"
+                " updated_at, last_scanned_at FROM knowledge.data_sources"
                 " ORDER BY is_default DESC, name"
             )
             rows = cast("list[dict[str, Any]]", await cursor.fetchall())
@@ -151,8 +156,8 @@ class PostgresDataSourceRegistry:
         ):
             await cursor.execute(
                 "SELECT id, name, database_type, connection_ref, status,"
-                " schema_fingerprint, is_default, created_at, updated_at,"
-                " last_scanned_at FROM knowledge.data_sources"
+                " schema_fingerprint, is_default, allowed_schemas, created_at,"
+                " updated_at, last_scanned_at FROM knowledge.data_sources"
                 " WHERE id = %(id)s",
                 {"id": data_source_id},
             )
@@ -204,6 +209,37 @@ class PostgresDataSourceRegistry:
             )
 
 
+def _from_dotenv(name: str) -> str | None:
+    """Read one value from the same .env file Settings loads.
+
+    Settings reads .env through pydantic-settings, which never touches
+    `os.environ`. Without this a reference configured the way every other
+    setting is configured would be listed as allowed and then fail to resolve,
+    which is a confusing way to discover that two configuration sources exist.
+
+    Deliberately narrow: it returns one named value and never enumerates the
+    file, so it cannot be used to read configuration wholesale.
+    """
+    path = Path(
+        Settings.model_config.get("env_file") or ".env"  # type: ignore[arg-type]
+    )
+    if not path.is_file():
+        return None
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == name:
+                return value.strip().strip("\"'")
+    except OSError:
+        # Configuration that cannot be read is the same as absent; the caller
+        # raises a clear error naming the reference rather than the file.
+        return None
+    return None
+
+
 def _to_data_source(row: dict[str, Any]) -> DataSource:
     return DataSource(
         id=row["id"],
@@ -211,6 +247,7 @@ def _to_data_source(row: dict[str, Any]) -> DataSource:
         database_type=row["database_type"],
         connection_ref=row["connection_ref"],
         status=DataSourceStatus(row["status"]),
+        allowed_schemas=tuple(row.get("allowed_schemas") or ("analytics",)),
         schema_fingerprint=row["schema_fingerprint"],
         is_default=row["is_default"],
         created_at=row["created_at"],

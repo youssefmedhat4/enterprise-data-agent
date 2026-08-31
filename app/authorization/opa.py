@@ -23,6 +23,7 @@ class _OPAResult(BaseModel):
     allowed_tables: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     allowed_metrics: tuple[str, ...] = ()
     debug_allowed: bool = False
+    knowledge_review_allowed: bool = False
 
 
 class _OPAResponse(BaseModel):
@@ -76,6 +77,7 @@ class OPAAuthorizationGateway(AuthorizationGateway):
             table_columns=result.allowed_tables,
             allowed_metrics=result.allowed_metrics,
             debug_allowed=result.debug_allowed,
+            knowledge_review_allowed=result.knowledge_review_allowed,
             latency_ms=round((perf_counter() - started) * 1000, 3),
         )
 

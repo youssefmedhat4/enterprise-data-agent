@@ -112,6 +112,7 @@ def deterministic_test_configuration(
         monkeypatch.setenv("KNOWLEDGE_WORKER_ENABLED", "0")
         monkeypatch.setenv("QUESTION_MEMORY_ENABLED", "0")
         monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
+        monkeypatch.setenv("ALLOWED_CONNECTION_REFS", "DATABASE_URL")
     get_settings.cache_clear()
     _development_checkpoint_store.cache_clear()
     yield
