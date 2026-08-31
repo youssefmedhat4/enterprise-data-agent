@@ -135,6 +135,7 @@ class PostgresDatabaseGateway(DatabaseGateway):
         self._max_result_bytes = settings.query_max_result_bytes
         self._allowed_schemas = settings.database_allowed_schemas
         self._categorical_columns = settings.database_categorical_columns
+        self._sample_columns = settings.database_sample_columns
         self._categorical_max_values = settings.database_categorical_max_values
         self._categorical_max_value_length = settings.database_categorical_max_value_length
         self._categorical_max_columns = settings.database_categorical_max_columns
@@ -266,7 +267,7 @@ class PostgresDatabaseGateway(DatabaseGateway):
             columns: list[ColumnMetadata] = []
             for column in table.column_metadata:
                 if (
-                    not self._categorical_candidate(column)
+                    not self._categorical_candidate(column, table)
                     or discovered_columns >= self._categorical_max_columns
                 ):
                     columns.append(column)
@@ -283,7 +284,21 @@ class PostgresDatabaseGateway(DatabaseGateway):
             enriched.append(replace(table, column_metadata=columns))
         return enriched
 
-    def _categorical_candidate(self, column: ColumnMetadata) -> bool:
+    def _categorical_candidate(
+        self, column: ColumnMetadata, table: TableMetadata | None = None
+    ) -> bool:
+        """Whether to sample this column's distinct values.
+
+        Two ways in. A caller may name the exact columns to sample, which is how
+        a confirmed semantic model drives this: the columns a reviewer agreed
+        carry entity labels and keys. Otherwise the configured name list
+        applies, which only ever worked for a database whose columns happen to
+        be called `status` or `region` -- exactly the naming assumption this
+        architecture exists to remove.
+
+        The type guard is unconditional either way: a numeric or timestamp
+        column is never sampled, whichever route selected it.
+        """
         data_type = column.data_type.casefold()
         safe_type = (
             data_type == "text"
@@ -292,7 +307,16 @@ class PostgresDatabaseGateway(DatabaseGateway):
             or data_type == "boolean"
             or data_type.startswith("enum:")
         )
-        return column.name.casefold() in self._categorical_columns and safe_type
+        if not safe_type:
+            return False
+        if self._sample_columns:
+            qualified = (
+                f"{table.schema_name}.{table.table_name}.{column.name}".casefold()
+                if table is not None
+                else column.name.casefold()
+            )
+            return qualified in self._sample_columns
+        return column.name.casefold() in self._categorical_columns
 
     async def _observed_values(
         self,

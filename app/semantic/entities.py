@@ -64,6 +64,26 @@ class ConceptBinding:
         return f"{self.schema_name}.{self.table_name}.{self.column}"
 
 
+def sampleable_columns(model: SemanticModel) -> tuple[str, ...]:
+    """Qualified columns worth sampling entity values from.
+
+    Derived from what a reviewer confirmed rather than from column naming, so
+    it works on a database this deployment has never seen. Confidence that a
+    column carries a business label comes from the review, not from whether it
+    happens to be called `status` or `region`.
+    """
+    entities = {entity.id: entity for entity in model.confirmed_entities()}
+    columns: list[str] = []
+    for attribute in model.confirmed_attributes():
+        entity = entities.get(attribute.entity_id)
+        if entity is None:
+            continue
+        columns.append(
+            f"{entity.source_schema}.{entity.source_table}.{attribute.source_column}"
+        )
+    return tuple(sorted(set(columns)))
+
+
 def confirmed_bindings(model: SemanticModel, concept: str) -> tuple[ConceptBinding, ...]:
     """Columns backing `concept`, from confirmed semantic mappings only.
 

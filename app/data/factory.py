@@ -22,6 +22,7 @@ def build_database_gateway_for(
     *,
     database_url: str,
     allowed_schemas: tuple[str, ...],
+    sample_columns: tuple[str, ...] = (),
 ) -> DatabaseGateway:
     """A gateway pointed at one registered datasource.
 
@@ -37,6 +38,7 @@ def build_database_gateway_for(
         update={
             "database_url": PostgresDsn(database_url),
             "database_allowed_schemas_csv": ",".join(allowed_schemas),
+            "database_sample_columns_csv": ",".join(sample_columns),
         }
     )
     return build_database_gateway(scoped)

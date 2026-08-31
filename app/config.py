@@ -209,6 +209,15 @@ class Settings(BaseSettings):
         le=100,
         alias="DB_CATEGORICAL_MAX_VALUES",
     )
+    #: Fully qualified columns to sample entity values from, as
+    #: `schema.table.column`. Normally derived from a datasource's confirmed
+    #: semantic model rather than configured by hand: naming conventions do not
+    #: transfer between databases, so a name list cannot work for one this
+    #: deployment has never seen. Empty means fall back to the name list.
+    database_sample_columns_csv: str = Field(
+        default="",
+        alias="DB_SAMPLE_COLUMNS",
+    )
     database_categorical_columns_csv: str = Field(
         default="status,type,category,region",
         alias="DB_CATEGORICAL_COLUMNS",
@@ -516,6 +525,14 @@ class Settings(BaseSettings):
                     "configure AUTHENTICATION_PROVIDER=oidc."
                 )
         return self
+
+    @property
+    def database_sample_columns(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().casefold()
+            for item in self.database_sample_columns_csv.split(",")
+            if item.strip()
+        )
 
     @property
     def database_allowed_schemas(self) -> tuple[str, ...]:
