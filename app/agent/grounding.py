@@ -1,6 +1,6 @@
 import logging
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from app.contracts.analytics import GroundedClaim, Scalar
 from app.errors import GroundingFailureError
@@ -115,6 +115,8 @@ class GroundingValidator:
             number = _normalized_number(raw)
             if number is None or number in supported:
                 continue
+            if _is_rounded_form_of_supported(number, raw, supported):
+                continue
             if _is_supported_structural_numeral(
                 number=number,
                 answer=answer,
@@ -134,6 +136,34 @@ class GroundingValidator:
         detail = " ".join(f"{key}={value}" for key, value in sorted(diagnostics.items()))
         logger.warning("grounding rejected answer: code=%s %s", reason, detail)
         return GroundingFailureError(reason=reason, detail=detail or None)
+
+
+def _is_rounded_form_of_supported(
+    number: Decimal, raw: str, supported: set[Decimal]
+) -> bool:
+    """Whether a real result value, rounded as written, gives this numeral.
+
+    An average of 113571.428571 shown as 113,571.43 is presentation, not
+    invention -- but it was rejected as an unsupported number, so an otherwise
+    correct answer failed. Rounding cannot manufacture a figure: some value in
+    the result still has to produce it at the stated precision.
+
+    Only applied when the numeral has fewer decimal places than the value it
+    matches; a numeral with *more* precision than anything in the result is
+    still an invention.
+    """
+    _, _, fraction = raw.partition(".")
+    places = len(fraction)
+    if places == 0:
+        # Whole numbers are handled by the row-count and rank rules. Accepting
+        # them here would let any value round to a nearby integer.
+        return False
+    quantum = Decimal(1).scaleb(-places)
+    return any(
+        value.quantize(quantum, rounding=ROUND_HALF_UP) == number
+        for value in supported
+        if -value.as_tuple().exponent > places  # type: ignore[operator]
+    )
 
 
 def _is_supported_structural_numeral(

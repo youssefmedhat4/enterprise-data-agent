@@ -295,3 +295,52 @@ def test_a_numeral_that_is_not_a_count_of_the_result_is_refused(answer: str) -> 
         GroundingValidator().validate(
             answer=answer, claims=_one_claim(), rows=_rows(42)
         )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "OU2100 has the highest average salary at 113,571.43.",
+        "OU2100 averages 113,571.4286.",
+    ],
+)
+def test_a_rounded_rendering_of_a_real_value_is_supported(answer: str) -> None:
+    """Rounding for display is presentation, not invention.
+
+    An average of 113571.428571 shown to two places was rejected as an
+    unsupported number, failing an otherwise correct answer.
+    """
+    rows: list[dict[str, object]] = [
+        {"org_cd": "OU2100", "avg_salary": "113571.428571428571"}
+    ]
+    claims = [
+        GroundedClaim(
+            claim="highest",
+            evidence=[ClaimEvidence(row_index=0, field="org_cd", value="OU2100")],
+        )
+    ]
+
+    assert GroundingValidator().validate(answer=answer, claims=claims, rows=rows)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "OU2100 averages 113,571.44.",  # not what the value rounds to
+        "OU2100 averages 999,999.99.",  # nothing like any value
+        "OU2100 averages 113,571.428571428572.",  # more precision than exists
+    ],
+)
+def test_rounding_cannot_manufacture_a_figure(answer: str) -> None:
+    rows: list[dict[str, object]] = [
+        {"org_cd": "OU2100", "avg_salary": "113571.428571428571"}
+    ]
+    claims = [
+        GroundedClaim(
+            claim="highest",
+            evidence=[ClaimEvidence(row_index=0, field="org_cd", value="OU2100")],
+        )
+    ]
+
+    with pytest.raises(GroundingFailureError):
+        GroundingValidator().validate(answer=answer, claims=claims, rows=rows)

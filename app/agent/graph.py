@@ -1033,7 +1033,15 @@ def _retrieve_schema(
         # Confirmed meanings are independent of spelling, so they select tables
         # the lexical pass cannot see.
         retrieved = list(context.tables)
-        if semantic_model is not None:
+        if len(available) <= MAX_UNNARROWED_TABLES:
+            # Narrowing exists to bound the prompt. Below that bound there is
+            # nothing to gain by withholding tables and real harm in doing it:
+            # asked for project margin, narrowing offered the invoice headers
+            # but not the invoice lines, and the model correctly refused to
+            # answer a question whose data it could not see. A partial schema
+            # is worse than a whole small one.
+            retrieved = list(available)
+        elif semantic_model is not None:
             wanted = tables_for_question(semantic_model, state["resolved_question"])
             known = {table.identifier for table in retrieved}
             retrieved.extend(
@@ -1902,7 +1910,10 @@ def _answer_system_prompt() -> str:
         "\n"
         "Quote figures exactly as they appear in the result rather than rounding, rescaling, or "
         "reformatting them, and never compute a new financial figure yourself — if a ratio or "
-        "total is not already a column, describe it in words instead of calculating it. Let the "
+        "total is not already a column, describe it in words instead of calculating it. The only "
+        "number you may state that is not a value in the result is how many rows were returned; "
+        "any other count, total, or difference must be described in words rather than given as a "
+        "figure, however obvious it looks. Let the "
         "ordering carry rank where it can: prefer 'Engineering has the highest project margin' "
         "over introducing an ordinal, and only use a rank number when the result actually "
         "contains a rank column. Do not open by restating how many rows came back; describe "
