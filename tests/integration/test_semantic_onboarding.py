@@ -40,6 +40,7 @@ from app.knowledge.onboarding import DataSourceOnboardingService
 from app.knowledge.postgres_semantics import PostgresSemanticRepository
 from app.knowledge.scanner import SchemaSnapshot
 from app.semantic.entities import EntityResolver
+from tests.support.knowledge_database import ensure_test_database
 
 pytestmark = pytest.mark.postgres
 
@@ -158,7 +159,7 @@ async def _exercise() -> None:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
@@ -263,7 +264,7 @@ async def _exercise_rescan() -> None:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
 
     async with AsyncConnectionPool(dsn, min_size=1, max_size=2, open=False) as pool:
         await pool.open(wait=True)

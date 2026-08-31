@@ -46,6 +46,7 @@ from app.knowledge.postgres_metrics import PostgresMetricRegistry
 from app.knowledge.postgres_semantics import PostgresSemanticRepository
 from app.knowledge.seed import registered_metrics_for_default_datasource
 from app.semantic.entities import EntityResolver
+from tests.support.knowledge_database import ensure_test_database
 
 pytestmark = pytest.mark.postgres
 
@@ -68,7 +69,7 @@ async def _dsn() -> str:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    return settings.checkpoint_database_url.get_secret_value()
+    return await ensure_test_database()
 
 
 async def _insert_source(conn: psycopg.AsyncConnection[Any], name: str) -> UUID:

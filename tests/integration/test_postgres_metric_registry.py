@@ -22,6 +22,7 @@ from app.knowledge.metrics import MetricStatus
 from app.knowledge.migrations import apply_migrations
 from app.knowledge.postgres_metrics import MetricRegistryError, PostgresMetricRegistry
 from app.knowledge.seed import registered_metrics_for_default_datasource
+from tests.support.knowledge_database import ensure_test_database
 
 pytestmark = pytest.mark.postgres
 
@@ -57,7 +58,7 @@ async def _exercise_registry() -> None:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:

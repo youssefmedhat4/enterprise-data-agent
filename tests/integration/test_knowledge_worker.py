@@ -39,6 +39,7 @@ from app.knowledge.seed import registered_metrics_for_default_datasource
 from app.knowledge.triggers import CandidateTrigger
 from app.knowledge.worker import KnowledgeJobWorker
 from app.llm.gateway import LLMGateway, LLMRateLimitError, ResponseModelT
+from tests.support.knowledge_database import ensure_test_database
 
 pytestmark = pytest.mark.postgres
 
@@ -153,7 +154,7 @@ async def _exercise_end_to_end() -> None:
     settings = Settings(**THRESHOLDS)  # type: ignore[arg-type]
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
     source = await _fresh_source(dsn, "worker", migrate=True)
 
     async with AsyncConnectionPool(dsn, min_size=1, max_size=4, open=False) as pool:
@@ -214,7 +215,7 @@ async def _exercise_running_loop() -> None:
     settings = Settings(**{**THRESHOLDS, "KNOWLEDGE_WORKER_POLL_SECONDS": 5.0})  # type: ignore[arg-type]
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
     source = await _fresh_source(dsn, "loop")
 
     async with AsyncConnectionPool(dsn, min_size=1, max_size=4, open=False) as pool:
@@ -266,7 +267,7 @@ async def _exercise_two_workers() -> None:
     settings = Settings(**THRESHOLDS)  # type: ignore[arg-type]
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
     source = await _fresh_source(dsn, "two-workers")
 
     async with AsyncConnectionPool(dsn, min_size=2, max_size=6, open=False) as pool:
@@ -312,7 +313,7 @@ async def _exercise_quota() -> None:
     settings = Settings(**THRESHOLDS)  # type: ignore[arg-type]
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
     source = await _fresh_source(dsn, "quota")
 
     async with AsyncConnectionPool(dsn, min_size=1, max_size=3, open=False) as pool:

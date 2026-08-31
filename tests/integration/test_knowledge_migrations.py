@@ -19,6 +19,7 @@ from psycopg import errors
 
 from app.config import Settings
 from app.knowledge.migrations import MigrationError, apply_migrations
+from tests.support.knowledge_database import ensure_test_database
 
 
 @pytest.mark.postgres
@@ -38,7 +39,7 @@ async def _exercise_migrations() -> None:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         # Start from a clean schema so the run is repeatable.
@@ -193,7 +194,7 @@ async def _exercise_checksum_guard() -> None:
     settings = Settings()
     if settings.checkpoint_database_url is None:
         pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
-    dsn = settings.checkpoint_database_url.get_secret_value()
+    dsn = await ensure_test_database()
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
