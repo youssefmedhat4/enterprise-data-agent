@@ -38,6 +38,7 @@ from app.governance.gateway import GovernanceGateway
 from app.knowledge.factory import build_metric_intent_planner
 from app.knowledge.runtime import KnowledgeRuntime, build_knowledge_runtime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
+from app.knowledge.triggers import CandidateTrigger
 from app.llm.factory import build_llm_gateway
 from app.llm.gateway import LLMGateway, LLMGatewayWithUsage, LLMUsageSnapshot
 from app.metrics.factory import build_metric_gateway
@@ -327,6 +328,21 @@ async def query_analytics(
         metric_registry=knowledge.registry,
         data_source_id=active_data_source_id,
         metric_intent_planner=intent_planner,
+        question_memory=(
+            knowledge.memory if settings.question_memory_enabled else None
+        ),
+        guidance_store=knowledge.guidance,
+        # Only when learning is enabled and the queue is persistent: an
+        # in-memory queue would neither coordinate workers nor survive restart.
+        candidate_trigger=(
+            CandidateTrigger(
+                settings=settings,
+                jobs=knowledge.jobs,
+                candidates=knowledge.candidates,
+            )
+            if settings.question_memory_enabled and knowledge.jobs is not None
+            else None
+        ),
         enable_query_router=True,
         authorization_gateway=authorization_gateway,
         governance_gateway=governance_gateway,

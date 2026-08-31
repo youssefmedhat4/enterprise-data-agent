@@ -105,6 +105,13 @@ def deterministic_test_configuration(
         monkeypatch.setenv("SEMANTIC_PROVIDER", "inmemory")
         monkeypatch.setenv("SQL_GENERATION_PROVIDER", "llm")
         monkeypatch.setenv("METRIC_PROVIDER", "cube")
+        # Settings reads .env, so a developer who enabled persistent knowledge
+        # locally would otherwise have the whole suite hit a real database and
+        # share state between tests. Postgres-marked tests opt in explicitly.
+        monkeypatch.setenv("KNOWLEDGE_STORAGE", "memory")
+        monkeypatch.setenv("KNOWLEDGE_WORKER_ENABLED", "0")
+        monkeypatch.setenv("QUESTION_MEMORY_ENABLED", "0")
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
     get_settings.cache_clear()
     _development_checkpoint_store.cache_clear()
     yield

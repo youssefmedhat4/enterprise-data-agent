@@ -10,3 +10,6 @@ __pycache__/
 htmlcov/
 semantic/wren/target/
 semantic/wren/.wren/
+
+# Local .env backups: these contain real credentials.
+.env.backup-*

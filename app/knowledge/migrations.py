@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from psycopg import AsyncConnection
+from psycopg.rows import tuple_row
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,11 @@ async def apply_migrations(
 ) -> list[str]:
     """Apply pending migrations in order. Returns the versions applied."""
     migrations = discover_migrations(directory)
-    async with connection.cursor() as cursor:
+    # The row factory is requested explicitly rather than inherited from the
+    # caller's connection. A pool configured with `dict_row` would otherwise
+    # yield dicts here, and unpacking one gives its keys, so every migration
+    # would look unapplied and be re-run against an existing schema.
+    async with connection.cursor(row_factory=tuple_row) as cursor:
         await cursor.execute(_HISTORY_DDL)
         await cursor.execute(
             "SELECT version, checksum FROM knowledge.schema_migrations",

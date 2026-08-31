@@ -31,6 +31,7 @@ from app.knowledge.candidates import (
     MetricProposal,
 )
 from app.knowledge.contracts import ApprovalStatus, SemanticAttribute, SemanticEntity
+from app.knowledge.database import KnowledgeDatabase
 from app.knowledge.discovery import SemanticModel
 from app.knowledge.expressions import BinaryOp, MetricRef
 from app.knowledge.guidance import ApprovedQueryExample, BusinessInstruction
@@ -383,3 +384,47 @@ async def _exercise_duplicate_guard() -> None:
 
         assert first is not None
         assert second is None, "a threshold crossed twice enqueued twice"
+
+
+def test_the_knowledge_pool_can_run_multi_statement_migrations() -> None:
+    """Guards the pool configuration itself, not just the migration SQL.
+
+    Setting `prepare_threshold=0` -- as the checkpoint pool does for LangGraph --
+    makes every migration fail, because a prepared statement cannot hold
+    multiple commands and every migration file is multi-statement. The failure
+    surfaces as an opaque SQL syntax error at startup, so it is worth pinning.
+    """
+    if sys.platform == "win32":
+        with asyncio.Runner(loop_factory=_selector_loop) as runner:
+            runner.run(_exercise_pool_runs_migrations())
+        return
+    asyncio.run(_exercise_pool_runs_migrations())
+
+
+async def _exercise_pool_runs_migrations() -> None:
+    settings = Settings()
+    if settings.checkpoint_database_url is None:
+        pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
+
+    async with await psycopg.AsyncConnection.connect(
+        settings.checkpoint_database_url.get_secret_value(), autocommit=True
+    ) as conn, conn.cursor() as cursor:
+        await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
+
+    database = KnowledgeDatabase.from_settings(settings)
+    try:
+        # Fails with KnowledgeDatabaseError(SyntaxError) if the pool prepares.
+        await database.initialize()
+        async with (
+            database.pool.connection() as connection,
+            connection.cursor() as cursor,
+        ):
+            await cursor.execute(
+                "SELECT count(*) AS total FROM pg_tables"
+                " WHERE schemaname = 'knowledge'"
+            )
+            row = await cursor.fetchone()
+        assert row is not None
+        assert row["total"] > 10, "the knowledge schema was not created"
+    finally:
+        await database.close()

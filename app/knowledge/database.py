@@ -48,7 +48,12 @@ class KnowledgeDatabase:
             timeout=connect_timeout_seconds,
             kwargs={
                 "autocommit": True,
-                "prepare_threshold": 0,
+                # Deliberately not `prepare_threshold: 0`, which the checkpoint
+                # pool sets for LangGraph. A prepared statement cannot hold
+                # multiple commands, and every migration file is multi-statement,
+                # so preparing eagerly makes schema setup fail with a SQL syntax
+                # error. The default threshold still prepares the stores'
+                # repeated queries, which run far more than once.
                 "row_factory": dict_row,
             },
         )

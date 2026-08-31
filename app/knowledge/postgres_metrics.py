@@ -17,7 +17,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 from psycopg_pool import AsyncConnectionPool
 
 from app.knowledge.metrics import MetricDimensionSpec, MetricStatus, RegisteredMetric
@@ -115,7 +115,7 @@ class PostgresMetricRegistry:
         async with (
             self._pool.connection() as connection,
             connection.transaction(),
-            connection.cursor() as cursor,
+            connection.cursor(row_factory=tuple_row) as cursor,
         ):
             await cursor.execute(
                 _UPSERT_METRIC,
@@ -137,7 +137,7 @@ class PostgresMetricRegistry:
                     "approved_by": metric.approved_by,
                 },
             )
-            row = cast("tuple[Any, ...] | None", await cursor.fetchone())
+            row = await cursor.fetchone()
             if row is None:  # pragma: no cover - RETURNING always yields
                 raise MetricRegistryError("Metric upsert returned no id.")
             await self._replace_children(cursor, metric, cast(UUID, row[0]))
@@ -155,7 +155,10 @@ class PostgresMetricRegistry:
         *,
         approved_by: str | None = None,
     ) -> RegisteredMetric:
-        async with self._pool.connection() as connection, connection.cursor() as cursor:
+        async with (
+            self._pool.connection() as connection,
+            connection.cursor(row_factory=tuple_row) as cursor,
+        ):
             await cursor.execute(
                 _SET_STATUS,
                 {
