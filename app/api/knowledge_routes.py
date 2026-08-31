@@ -642,7 +642,7 @@ async def review_candidate(
     if store is None or registry is None:
         raise HTTPException(status_code=404, detail="No candidate to review.")
 
-    review = CandidateReview(store=store, registry=registry)
+    review = CandidateReview(store=store, registry=registry, guidance=knowledge.guidance)
     try:
         if decision.action == "reject":
             candidate = await review.reject(
@@ -652,9 +652,17 @@ async def review_candidate(
                 reviewed_by=identity.subject_id,
             )
             return _candidate_view(candidate)
-        await review.approve_metric(
-            data_source_id, candidate_id, reviewed_by=identity.subject_id
-        )
+        candidate = await store.by_id(data_source_id, candidate_id)
+        if candidate is None:
+            raise CandidateReviewError("No such candidate in this datasource.")
+        if candidate.candidate_type.value == "BUSINESS_RULE":
+            await review.approve_business_rule(
+                data_source_id, candidate_id, reviewed_by=identity.subject_id
+            )
+        else:
+            await review.approve_metric(
+                data_source_id, candidate_id, reviewed_by=identity.subject_id
+            )
     except CandidateReviewError as exc:
         # The reason a promotion was refused is reviewer-facing and safe: it
         # names metric keys and dimensions the reviewer is already looking at.

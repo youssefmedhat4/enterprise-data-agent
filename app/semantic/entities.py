@@ -207,6 +207,11 @@ class EntityCandidate:
     strategy: ResolutionStrategy
     confidence: float
     canonical_column: str | None = None
+    # Runtime resolution carries identity separately from the label.  Two
+    # entities may both display "Operations" but remain different choices.
+    semantic_entity_id: UUID | None = None
+    canonical_key: str | None = None
+    display_value: str | None = None
 
     @property
     def qualified_column(self) -> str:
@@ -282,6 +287,77 @@ class EntityResolver:
                 # stronger one that already matched.
                 return EntityResolution(candidates=tuple(matches[:_MAX_AMBIGUOUS]))
         return EntityResolution(candidates=())
+
+    def resolve_candidates(
+        self,
+        *,
+        user_text: str,
+        candidates: list[EntityCandidate],
+    ) -> EntityResolution:
+        """Apply the same conservative ladder to live lookup candidates.
+
+        Database lookups provide real canonical/display pairs.  Matching is
+        still performed here so a live gateway and legacy discovery samples
+        share one ambiguity policy.
+        """
+        normalized_question = normalize_value(user_text)
+        if not normalized_question:
+            return EntityResolution(candidates=())
+        for strategy in ("canonical", "exact", "prefix", "fuzzy"):
+            matches = self._match_candidates(strategy, normalized_question, candidates)
+            if matches:
+                return EntityResolution(candidates=tuple(matches[:_MAX_AMBIGUOUS]))
+        return EntityResolution(candidates=())
+
+    def _match_candidates(
+        self,
+        strategy: str,
+        question: str,
+        candidates: list[EntityCandidate],
+    ) -> list[EntityCandidate]:
+        matches: list[EntityCandidate] = []
+        seen: set[tuple[UUID | None, str | None, str, str]] = set()
+        for candidate in candidates:
+            display = candidate.display_value or candidate.value
+            canonical = candidate.canonical_key or ""
+            confidence = None
+            if strategy == "canonical" and canonical:
+                confidence = self._score(strategy, question, normalize_value(canonical), canonical)
+            elif strategy != "canonical":
+                confidence = self._score(strategy, question, normalize_value(display), display)
+            if confidence is None:
+                continue
+            identity = (
+                candidate.semantic_entity_id,
+                candidate.canonical_key,
+                candidate.qualified_column,
+                display,
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            matches.append(
+                EntityCandidate(
+                    value=display,
+                    schema_name=candidate.schema_name,
+                    table_name=candidate.table_name,
+                    column=candidate.column,
+                    strategy=strategy,  # type: ignore[arg-type]
+                    confidence=confidence,
+                    canonical_column=candidate.canonical_column,
+                    semantic_entity_id=candidate.semantic_entity_id,
+                    canonical_key=candidate.canonical_key,
+                    display_value=display,
+                )
+            )
+        matches.sort(
+            key=lambda match: (
+                -match.confidence,
+                match.canonical_key or "",
+                match.display_value or match.value,
+            )
+        )
+        return matches
 
     def _values_for_bindings(
         self,

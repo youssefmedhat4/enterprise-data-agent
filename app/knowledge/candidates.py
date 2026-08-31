@@ -41,6 +41,7 @@ from app.knowledge.expressions import (
     referenced_metrics,
     validate_expression,
 )
+from app.knowledge.guidance import BusinessInstruction
 from app.knowledge.memory import QuestionCluster
 from app.knowledge.metrics import (
     MetricDimensionSpec,
@@ -334,10 +335,15 @@ class CandidateReview:
     """Approve, edit, or reject. Approval validates before it certifies."""
 
     def __init__(
-        self, *, store: CandidateStore, registry: MetricRegistry
+        self,
+        *,
+        store: CandidateStore,
+        registry: MetricRegistry,
+        guidance: object | None = None,
     ) -> None:
         self._store = store
         self._registry = registry
+        self._guidance = guidance
 
     async def reject(
         self,
@@ -456,6 +462,45 @@ class CandidateReview:
             )
         )
         return stored
+
+    async def approve_business_rule(
+        self,
+        data_source_id: UUID,
+        candidate_id: UUID,
+        *,
+        reviewed_by: str | None = None,
+    ) -> BusinessInstruction:
+        """Promote reviewed business wording into datasource-scoped guidance."""
+        candidate = await self._require(data_source_id, candidate_id)
+        if candidate.status is CandidateStatus.REJECTED:
+            raise CandidateReviewError("A rejected candidate cannot be approved.")
+        proposal = candidate.proposal
+        if not isinstance(proposal, BusinessRuleProposal):
+            raise CandidateReviewError(
+                f"Candidate {candidate.candidate_type.value} is not a business rule."
+            )
+        if self._guidance is None:
+            raise CandidateReviewError("Business-rule guidance is not configured.")
+        approve = getattr(self._guidance, "approve_instruction", None)
+        if approve is None:
+            raise CandidateReviewError("Business-rule guidance is not configured.")
+        instruction = BusinessInstruction(
+            data_source_id=data_source_id,
+            title=proposal.display_name,
+            instruction=proposal.instruction,
+            semantic_concepts=tuple(proposal.semantic_concepts),
+            metric_keys=tuple(proposal.metric_keys),
+            source_candidate_id=candidate.id,
+        )
+        await approve(instruction)
+        await self._store.upsert(
+            _replace(
+                candidate,
+                status=CandidateStatus.APPROVED,
+                reviewed_by=reviewed_by,
+            )
+        )
+        return instruction
 
     async def _require(
         self, data_source_id: UUID, candidate_id: UUID

@@ -54,6 +54,7 @@ markers = [
     "cloud: requires explicit opt-in and a configured cloud LLM credential",
     "local_llm: requires explicit opt-in and a configured local model service",
     "postgres: requires explicit opt-in and a configured PostgreSQL service",
+    "legacy: requires explicit opt-in and a configured Legacy ERP PostgreSQL fixture",
     "opa: requires explicit opt-in and a configured OPA service",
     "wren: requires explicit opt-in and a configured Wren context service",
     "cube: requires explicit opt-in and a configured Cube Core service",

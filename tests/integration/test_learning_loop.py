@@ -17,16 +17,20 @@ import pytest
 
 from app.embeddings.fake import HashingEmbeddingGateway
 from app.knowledge.candidates import (
+    BusinessRuleProposal,
     CandidateGeneration,
     CandidateGenerator,
     CandidateReview,
     CandidateReviewError,
     CandidateStatus,
+    CandidateType,
     InMemoryCandidateStore,
+    KnowledgeCandidate,
     MetricProposal,
 )
 from app.knowledge.expressions import BinaryOp, MetricRef, evaluate
 from app.knowledge.fingerprints import governed_fingerprint
+from app.knowledge.guidance import InMemoryGuidanceStore
 from app.knowledge.memory import InMemoryQuestionMemory, QuestionEvent
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricStatus
 from app.knowledge.retrieval import MetricRetriever
@@ -258,6 +262,51 @@ async def test_approval_refuses_a_dependency_that_is_not_certified() -> None:
     review = CandidateReview(store=store, registry=registry)
     with pytest.raises(CandidateReviewError, match="not certified"):
         await review.approve_metric(SOURCE_A, candidate.id)
+
+
+@pytest.mark.anyio
+async def test_reviewed_business_rule_is_persisted_and_retrieved_by_relevance() -> None:
+    store = InMemoryCandidateStore()
+    registry = InMemoryMetricRegistry(
+        registered_metrics_for_default_datasource(SOURCE_A)
+    )
+    guidance = InMemoryGuidanceStore()
+    candidate = KnowledgeCandidate(
+        data_source_id=SOURCE_A,
+        candidate_type=CandidateType.BUSINESS_RULE,
+        display_name="Current annual payroll population",
+        structural_fingerprint="business-rule-payroll-population",
+        proposal=BusinessRuleProposal(
+            display_name="Current annual payroll population",
+            instruction=(
+                "Current annual payroll represents all current compensation records. "
+                "Employee employment status does not restrict payroll unless the user "
+                "explicitly asks for active-employee payroll."
+            ),
+            semantic_concepts=["current annual payroll", "compensation"],
+            metric_keys=["annual_base_payroll"],
+        ),
+    )
+    await store.upsert(candidate)
+
+    review = CandidateReview(store=store, registry=registry, guidance=guidance)
+    approved = await review.approve_business_rule(
+        SOURCE_A, candidate.id, reviewed_by="reviewer"
+    )
+
+    assert approved.source_candidate_id == candidate.id
+    payroll = await guidance.relevant_instructions(
+        SOURCE_A, "What is our current annual payroll?"
+    )
+    headcount = await guidance.relevant_instructions(
+        SOURCE_A, "How many active employees do we have?"
+    )
+    margin = await guidance.relevant_instructions(
+        SOURCE_A, "Which customer has the highest project margin?"
+    )
+    assert [item.title for item in payroll] == ["Current annual payroll population"]
+    assert headcount == []
+    assert margin == []
 
 
 @pytest.mark.anyio

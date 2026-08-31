@@ -43,6 +43,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Allow tests marked cube to call the configured local Cube Core service.",
     )
+    parser.addoption(
+        "--run-legacy",
+        action="store_true",
+        default=False,
+        help="Allow tests marked legacy to call the configured Legacy ERP fixture.",
+    )
 
 
 def pytest_collection_modifyitems(
@@ -55,6 +61,7 @@ def pytest_collection_modifyitems(
     run_wren = config.getoption("--run-wren")
     run_opa = config.getoption("--run-opa")
     run_cube = config.getoption("--run-cube")
+    run_legacy = config.getoption("--run-legacy")
     skip_cloud = pytest.mark.skip(reason="Cloud tests require explicit --run-cloud opt-in")
     skip_local = pytest.mark.skip(
         reason="Local model tests require explicit --run-local-llm opt-in"
@@ -65,6 +72,9 @@ def pytest_collection_modifyitems(
     skip_wren = pytest.mark.skip(reason="Wren tests require explicit --run-wren opt-in")
     skip_opa = pytest.mark.skip(reason="OPA tests require explicit --run-opa opt-in")
     skip_cube = pytest.mark.skip(reason="Cube tests require explicit --run-cube opt-in")
+    skip_legacy = pytest.mark.skip(
+        reason="Legacy ERP tests require explicit --run-legacy opt-in"
+    )
     for item in items:
         if not run_cloud and item.get_closest_marker("cloud") is not None:
             item.add_marker(skip_cloud)
@@ -78,6 +88,8 @@ def pytest_collection_modifyitems(
             item.add_marker(skip_opa)
         if not run_cube and item.get_closest_marker("cube") is not None:
             item.add_marker(skip_cube)
+        if not run_legacy and item.get_closest_marker("legacy") is not None:
+            item.add_marker(skip_legacy)
 
 
 @pytest.fixture(autouse=True)

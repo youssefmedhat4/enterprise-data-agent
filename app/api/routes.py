@@ -46,8 +46,10 @@ from app.metrics.factory import build_metric_gateway
 from app.metrics.gateway import MetricGateway, MetricProviderUnavailableError
 from app.observability.factory import build_trace_service
 from app.observability.gateway import TraceService
+from app.routing.planner import MetricRequestPlanner
 from app.security.sql_validation import SQLValidator
 from app.semantic.entities import sampleable_columns
+from app.semantic.entity_values import DatabaseEntityValueGateway
 from app.semantic.factory import build_semantic_gateway
 from app.semantic.gateway import SemanticGateway
 
@@ -302,6 +304,11 @@ async def _sample_columns_for(
     return sampleable_columns(model)
 
 
+def _sample_columns_from_model(model: Any) -> tuple[str, ...]:
+    """Use reviewed mappings for discovery sampling, never for live lookup."""
+    return () if model is None else sampleable_columns(model)
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -344,6 +351,7 @@ async def query_analytics(
 ) -> AnalyticsResponse:
     request_id = getattr(http_request.state, "request_id", str(uuid4()))
     active_data_source_id = request.data_source_id or DEFAULT_DATA_SOURCE_ID
+    semantic_model = await _semantic_model_for(knowledge, active_data_source_id)
     # The selected datasource decides which database is read, not just which
     # knowledge applies. The client supplies an id and nothing else; the
     # connection reference and its DSN are looked up server-side, so a request
@@ -354,9 +362,7 @@ async def query_analytics(
         try:
             context = await knowledge.execution.context_for(
                 active_data_source_id,
-                sample_columns=await _sample_columns_for(
-                    knowledge, active_data_source_id
-                ),
+                sample_columns=_sample_columns_from_model(semantic_model),
             )
         except DataSourceUnavailableError as exc:
             # Never fall back to the default database: answering from a
@@ -388,6 +394,14 @@ async def query_analytics(
         semantic_gateway=semantic_gateway,
         sql_generation_provider=settings.sql_generation_provider,
         metric_gateway=metric_gateway,
+        metric_planner=MetricRequestPlanner(
+            entity_value_gateway=(
+                DatabaseEntityValueGateway(execution_gateway)
+                if semantic_model is not None
+                else None
+            ),
+            semantic_model=semantic_model,
+        ),
         metric_registry=knowledge.registry,
         data_source_id=active_data_source_id,
         metric_intent_planner=intent_planner,
@@ -396,7 +410,7 @@ async def query_analytics(
         ),
         # Confirmed meanings select tables when physical names do not
         # resemble how anyone asks the question.
-        semantic_model=await _semantic_model_for(knowledge, active_data_source_id),
+        semantic_model=semantic_model,
         guidance_store=knowledge.guidance,
         # Only when learning is enabled and the queue is persistent: an
         # in-memory queue would neither coordinate workers nor survive restart.
@@ -413,6 +427,11 @@ async def query_analytics(
         authorization_gateway=authorization_gateway,
         governance_gateway=governance_gateway,
         trace_service=trace_service,
+        entity_value_gateway=(
+            DatabaseEntityValueGateway(execution_gateway)
+            if semantic_model is not None
+            else None
+        ),
     )
     request_span = trace_service.start_span(
         "analytics.request",

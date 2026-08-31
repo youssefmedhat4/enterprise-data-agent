@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -87,6 +88,7 @@ class DataSourceRuntimeProvider:
         *,
         registry: DataSourceLookup,
         max_cached: int = MAX_CACHED_GATEWAYS,
+        gateway_factory: Callable[..., DatabaseGateway] | None = None,
     ) -> None:
         self._settings = settings
         self._registry = registry
@@ -94,6 +96,7 @@ class DataSourceRuntimeProvider:
         self._gateways: OrderedDict[str, DatabaseGateway] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max_cached = max_cached
+        self._gateway_factory = gateway_factory
 
     async def context_for(
         self,
@@ -135,7 +138,8 @@ class DataSourceRuntimeProvider:
             # Names the reference, never the value it resolves to.
             raise DataSourceUnavailableError(str(exc)) from exc
         try:
-            return build_database_gateway_for(
+            factory = self._gateway_factory or build_database_gateway_for
+            return factory(
                 self._settings,
                 database_url=dsn,
                 allowed_schemas=source.allowed_schemas,

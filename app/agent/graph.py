@@ -50,8 +50,10 @@ from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.knowledge.triggers import CandidateTrigger
 from app.llm.gateway import AnswerGeneration, LLMGateway, SQLGeneration, SQLRepair
-from app.metrics.catalog import GOVERNED_METRICS
+from app.metrics.catalog import GOVERNED_METRICS, metric_definition
 from app.metrics.gateway import (
+    MetricFilter,
+    MetricFilterOperator,
     MetricGateway,
     MetricProviderUnavailableError,
     MetricQuery,
@@ -64,10 +66,12 @@ from app.routing.router import DeterministicQueryRouter
 from app.security.sql_validation import (
     SQLRepairFailedError,
     SQLSchemaValidationError,
+    SQLValidationCode,
     SQLValidationError,
     SQLValidator,
 )
 from app.semantic.entities import tables_for_question
+from app.semantic.entity_values import EntityValueGateway
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
 
@@ -101,6 +105,7 @@ def build_graph(
     authorization_gateway: AuthorizationGateway | None = None,
     governance_gateway: GovernanceGateway | None = None,
     trace_service: TraceService | None = None,
+    entity_value_gateway: EntityValueGateway | None = None,
 ) -> Any:
     if sql_generation_provider != "llm":
         raise ValueError(
@@ -154,6 +159,19 @@ def build_graph(
                 traces,
             ),
         )
+        graph.add_node(
+            "resolve_metric_entities",
+            _observed_node(
+                "resolve_metric_entities",
+                _resolve_metric_entities(
+                    metric_registry,
+                    data_source_id,
+                    entity_value_gateway,
+                    semantic_model,
+                ),
+                traces,
+            ),
+        )
     if enable_query_router:
         graph.add_edge("authorize_request", "route_query")
         if semantic_governed:
@@ -175,10 +193,15 @@ def build_graph(
                 "plan_metric_intent",
                 _route_after_metric_intent,
                 {
-                    "governed_metric": "execute_metric",
+                    "governed_metric": "resolve_metric_entities",
                     "adhoc_analytics": "retrieve_schema",
                     "clarify": "clarify",
                 },
+            )
+            graph.add_conditional_edges(
+                "resolve_metric_entities",
+                _route_after_metric_entities,
+                {"governed_metric": "execute_metric", "clarify": "clarify"},
             )
         else:
             graph.add_conditional_edges(
@@ -389,6 +412,112 @@ def _route_after_metric_intent(state: AgentState) -> str:
     return state["execution_route"]
 
 
+def _route_after_metric_entities(state: AgentState) -> str:
+    return state["execution_route"]
+
+
+def _resolve_metric_entities(
+    registry: MetricRegistry,
+    data_source_id: UUID,
+    entity_values: EntityValueGateway | None,
+    semantic_model: SemanticModel | None,
+) -> Node:
+    """Apply reviewed entity filters before a governed provider is called.
+
+    The lookup runs after authorization and against the selected datasource.
+    A duplicate display label becomes a clarification, not an arbitrary filter;
+    neither the metric provider nor a model receives a guessed identifier.
+    """
+
+    async def node(state: AgentState) -> AgentState:
+        if entity_values is None or semantic_model is None:
+            return {"execution_route": "governed_metric"}
+        queries = [state["metric_query"], *state.get("additional_metric_queries", [])]
+        filters_by_dimension: dict[str, MetricFilter] = {}
+        dimensions_by_metric: dict[str, frozenset[str]] = {}
+        for query in queries:
+            metric = await registry.get(data_source_id, query.metric)
+            if metric is None:
+                continue
+            dimensions_by_metric[query.metric] = frozenset(
+                dimension.dimension_key for dimension in metric.dimensions
+            )
+            for dimension in metric.dimensions:
+                if dimension.semantic_attribute_id is None:
+                    continue
+                attribute = next(
+                    (
+                        item
+                        for item in semantic_model.confirmed_attributes()
+                        if item.id == dimension.semantic_attribute_id
+                    ),
+                    None,
+                )
+                if attribute is None:
+                    continue
+                entity = next(
+                    (
+                        item
+                        for item in semantic_model.confirmed_entities()
+                        if item.id == attribute.entity_id
+                    ),
+                    None,
+                )
+                if entity is None:
+                    continue
+                resolution = await entity_values.resolve(
+                    user_text=state["question"],
+                    semantic_model=semantic_model,
+                    authorized_tables=state.get("available_metadata", []),
+                    concept=entity.entity_name,
+                )
+                if resolution.is_unresolved:
+                    continue
+                if resolution.is_ambiguous:
+                    choices = "; ".join(
+                        f"{candidate.canonical_key} | {candidate.display_value}"
+                        for candidate in resolution.candidates
+                    )
+                    return {
+                        "execution_route": "clarify",
+                        "model_action": "clarify",
+                        "needs_clarification": True,
+                        "clarification_question": (
+                            f"Which {entity.entity_name} do you mean: {choices}?"
+                        ),
+                    }
+                match = resolution.resolved
+                if match is not None:
+                    filters_by_dimension[dimension.dimension_key] = MetricFilter(
+                        dimension=dimension.dimension_key,
+                        operator=MetricFilterOperator.EQ,
+                        values=(match.display_value or match.value,),
+                    )
+        if not filters_by_dimension:
+            return {"execution_route": "governed_metric"}
+
+        updated_queries: list[MetricQuery] = []
+        for query in queries:
+            retained = [
+                item for item in query.filters if item.dimension not in filters_by_dimension
+            ]
+            applicable = [
+                item
+                for key, item in filters_by_dimension.items()
+                if key in dimensions_by_metric.get(query.metric, frozenset())
+            ]
+            updated_queries.append(
+                query.model_copy(update={"filters": tuple([*retained, *applicable])})
+            )
+        return {
+            "execution_route": "governed_metric",
+            "metric_query": updated_queries[0],
+            "additional_metric_queries": updated_queries[1:],
+        }
+
+    return node
+
+
 def _plan_metric_intent(
     planner: MetricIntentPlanner,
     registry: MetricRegistry,
@@ -488,13 +617,26 @@ def _governed_queries(plan: ValidatedMetricPlan) -> list[MetricQuery]:
 
 def _plan_metric_request(planner: MetricRequestPlanner) -> Node:
     async def node(state: AgentState) -> AgentState:
+        resolved_entities: dict[str, object] = {}
+        decision = state["route_decision"]
+        if len(decision.metric_candidates) == 1:
+            definition = metric_definition(decision.metric_candidates[0])
+            for dimension in definition.dimensions:
+                resolution = await planner.resolve_entity(
+                    question=state["question"],
+                    concept=dimension.id,
+                    authorized_tables=state.get("available_metadata", []),
+                )
+                if resolution is not None:
+                    resolved_entities[dimension.id] = resolution
         plan = planner.plan(
             state["question"],
-            state["route_decision"],
+            decision,
             prior_context=state.get("analytical_context"),
             # Authorization already filtered this; the resolver must never see
             # more of the schema than the caller may read.
             authorized_tables=state.get("available_metadata", []),
+            resolved_entities=resolved_entities or None,
         )
         query = plan.query
         if query.metric not in state["authorized_metric_ids"]:
@@ -941,6 +1083,14 @@ def _validate_sql(sql_validator: SQLValidator) -> Node:
             return update
         if state.get("initial_validation_error_code") is None and result.error_code is not None:
             update["initial_validation_error_code"] = result.error_code.value
+        # A schema outside the selected datasource is a scope violation, not a
+        # spelling mistake.  The validator retains its repairable annotation
+        # for the frozen evaluation contract, but the runtime must never show
+        # a cross-datasource reference to the repair model or execute it.
+        if result.error_code is SQLValidationCode.FORBIDDEN_SCHEMA:
+            raise SQLValidationError(
+                result.error_details or "Schema is not allowed.", result=result
+            )
         if result.repairable and not state.get("sql_repair_attempted", False):
             return update
         message = result.error_details or "SQL validation failed."

@@ -5,6 +5,7 @@ from time import perf_counter
 
 from app.agent.context import AnalyticalContext
 from app.data.gateway import TableMetadata
+from app.knowledge.discovery import SemanticModel
 from app.metrics.catalog import metric_definition, validate_metric_query
 from app.metrics.gateway import (
     MetricFilter,
@@ -22,7 +23,8 @@ from app.routing.contracts import (
     RouteReasonCode,
 )
 from app.routing.router import normalize_text
-from app.semantic.entities import EntityResolver
+from app.semantic.entities import EntityResolution, EntityResolver
+from app.semantic.entity_values import EntityValueGateway
 
 _TIME_GRAINS = {
     "by year": MetricTimeGrain.YEAR,
@@ -39,8 +41,37 @@ _TIME_GRAINS = {
 class MetricRequestPlanner:
     """Produce only catalog-validated governed members, never SQL or formulas."""
 
-    def __init__(self, entity_resolver: EntityResolver | None = None) -> None:
+    def __init__(
+        self,
+        entity_resolver: EntityResolver | None = None,
+        entity_value_gateway: EntityValueGateway | None = None,
+        semantic_model: SemanticModel | None = None,
+    ) -> None:
         self._entities = entity_resolver or EntityResolver()
+        self._entity_value_gateway = entity_value_gateway
+        self._semantic_model = semantic_model
+
+    async def resolve_entity(
+        self,
+        *,
+        question: str,
+        concept: str,
+        authorized_tables: list[TableMetadata],
+    ) -> object | None:
+        """Resolve a governed filter through live data when configured.
+
+        The synchronous sampled-metadata resolver remains for the deterministic
+        compatibility path.  A reviewed model plus a runtime gateway always
+        wins in a live request.
+        """
+        if self._entity_value_gateway is None or self._semantic_model is None:
+            return None
+        return await self._entity_value_gateway.resolve(
+            user_text=question,
+            semantic_model=self._semantic_model,
+            authorized_tables=authorized_tables,
+            concept=concept,
+        )
 
     def plan(
         self,
@@ -49,6 +80,7 @@ class MetricRequestPlanner:
         *,
         prior_context: AnalyticalContext | None = None,
         authorized_tables: list[TableMetadata] | None = None,
+        resolved_entities: dict[str, object] | None = None,
     ) -> MetricRequestPlan:
         started = perf_counter()
         if decision.route != QueryRoute.GOVERNED_METRIC:
@@ -92,11 +124,19 @@ class MetricRequestPlanner:
         # unambiguous match becomes a filter: an ambiguous or absent one leaves
         # the query unfiltered instead of guessing.
         for dimension in definition.dimensions:
-            resolution = self._entities.resolve(
-                user_text=question,
-                authorized_tables=authorized_tables or [],
-                concept=dimension.id,
+            resolution = (
+                resolved_entities.get(dimension.id)
+                if resolved_entities is not None
+                else self._entities.resolve(
+                    user_text=question,
+                    authorized_tables=authorized_tables or [],
+                    concept=dimension.id,
+                )
             )
+            if resolution is None:
+                continue
+            if not isinstance(resolution, EntityResolution):
+                continue
             match = resolution.resolved
             if match is None:
                 continue
