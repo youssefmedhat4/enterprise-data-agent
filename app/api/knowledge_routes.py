@@ -130,6 +130,37 @@ class QueryExampleView(StrictPayload):
     query_pattern: str | None = None
 
 
+class BusinessInstructionView(StrictPayload):
+    id: UUID
+    title: str
+    instruction: str
+    semantic_concepts: list[str] = Field(default_factory=list)
+    metric_keys: list[str] = Field(default_factory=list)
+    status: ApprovalStatus
+    schema_fingerprint: str | None = None
+    source_candidate_id: UUID | None = None
+    approved_at: str | None = None
+
+
+class AuthorBusinessInstruction(StrictPayload):
+    """A reviewer's own statement of what a figure means.
+
+    Business meaning does not only arrive from the worker. A reviewer who
+    watched a generated answer disagree with the business definition needs a
+    way to record the definition itself, and the candidate queue only carries
+    what a model proposed. This is that path: same authority, same datasource
+    scope, same relevance filtering at retrieval.
+    """
+
+    title: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=4000)
+    #: Business wording the question is matched against. Physical table and
+    #: column names are deliberately not required here -- an instruction states
+    #: meaning, and the semantic model already says where that meaning lives.
+    semantic_concepts: list[str] = Field(default_factory=list, max_length=20)
+    metric_keys: list[str] = Field(default_factory=list, max_length=20)
+
+
 async def require_knowledge_reviewer(
     identity: Annotated[UserIdentity, Depends(get_authenticated_identity)],
     authorization_gateway: Annotated[
@@ -723,6 +754,74 @@ async def list_query_examples(
         )
         for example in await guidance.examples(data_source_id)
     ]
+
+
+@router.get("/data-sources/{data_source_id}/instructions")
+async def list_business_instructions(
+    data_source_id: UUID,
+    _: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+) -> list[BusinessInstructionView]:
+    guidance = knowledge.guidance
+    if guidance is None:
+        return []
+    return [
+        _instruction_view(instruction)
+        for instruction in await guidance.instructions(data_source_id)
+    ]
+
+
+@router.post("/data-sources/{data_source_id}/instructions", status_code=201)
+async def author_business_instruction(
+    data_source_id: UUID,
+    payload: AuthorBusinessInstruction,
+    identity: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+) -> BusinessInstructionView:
+    """Record reviewed business meaning for one datasource.
+
+    Approval is the act of writing it: this route already requires review
+    authority, which is the same bar the candidate queue applies before a
+    proposal becomes guidance.
+    """
+    del identity
+    guidance = knowledge.guidance
+    if guidance is None:
+        raise HTTPException(status_code=404, detail="No datasource to annotate.")
+    sources = knowledge.data_sources
+    if sources is not None and await sources.get(data_source_id) is None:
+        raise HTTPException(status_code=404, detail="No datasource to annotate.")
+
+    from app.knowledge.guidance import BusinessInstruction
+
+    stored = await guidance.approve_instruction(
+        BusinessInstruction(
+            data_source_id=data_source_id,
+            title=payload.title.strip(),
+            instruction=payload.instruction.strip(),
+            semantic_concepts=tuple(
+                concept.strip() for concept in payload.semantic_concepts if concept.strip()
+            ),
+            metric_keys=tuple(key.strip() for key in payload.metric_keys if key.strip()),
+        )
+    )
+    return _instruction_view(stored)
+
+
+def _instruction_view(instruction: Any) -> BusinessInstructionView:
+    return BusinessInstructionView(
+        id=instruction.id,
+        title=instruction.title,
+        instruction=instruction.instruction,
+        semantic_concepts=list(instruction.semantic_concepts),
+        metric_keys=list(instruction.metric_keys),
+        status=instruction.status,
+        schema_fingerprint=instruction.schema_fingerprint,
+        source_candidate_id=instruction.source_candidate_id,
+        approved_at=(
+            instruction.approved_at.isoformat() if instruction.approved_at else None
+        ),
+    )
 
 
 def _candidate_view(candidate: Any) -> CandidateView:

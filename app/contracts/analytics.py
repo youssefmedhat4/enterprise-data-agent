@@ -138,6 +138,8 @@ class DebugProvenance(StrictContract):
     semantic_model_ids: list[str] = Field(default_factory=list)
     semantic_relationship_ids: list[str] = Field(default_factory=list)
     semantic_measure_ids: list[str] = Field(default_factory=list)
+    applied_instruction_titles: list[str] = Field(default_factory=list)
+    applied_example_ids: list[str] = Field(default_factory=list)
     sql_generation_provider: str = "llm"
     route: str = "adhoc_analytics"
     route_reason_code: str = "adhoc_default"
@@ -208,6 +210,11 @@ class InternalProvenance(StrictContract):
     governance_provider: str = "disabled"
     governance_source_ids: list[str] = Field(default_factory=list)
     governance_owner_names: list[str] = Field(default_factory=list)
+    #: Reviewed knowledge that actually shaped this answer. Recorded so an
+    #: auditor can tell whether an approved business definition was applied,
+    #: and equally that an unrelated one was not.
+    applied_instruction_titles: list[str] = Field(default_factory=list)
+    applied_example_ids: list[str] = Field(default_factory=list)
     governance_catalog_freshness_at: datetime | None = None
     governance_retrieval_latency_ms: float = Field(default=0, ge=0)
     selected_schema_ids: list[str] = Field(default_factory=list)
@@ -255,6 +262,8 @@ class InternalProvenance(StrictContract):
                 semantic_model_ids=self.semantic_model_ids,
                 semantic_relationship_ids=self.semantic_relationship_ids,
                 semantic_measure_ids=self.semantic_measure_ids,
+                applied_instruction_titles=self.applied_instruction_titles,
+                applied_example_ids=self.applied_example_ids,
                 sql_generation_provider=self.sql_generation_provider,
                 route=self.route,
                 route_reason_code=self.route_reason_code,

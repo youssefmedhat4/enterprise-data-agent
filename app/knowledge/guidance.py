@@ -264,8 +264,35 @@ def _tables_in(sql: str) -> frozenset[str]:
     )
 
 
+#: Suffixes stripped before comparing words, longest first. Not linguistics:
+#: just enough that a reviewer writing "current annual payroll" is still found
+#: by someone asking what they pay "annually". Exact word matching made
+#: retrieval depend on a questioner guessing the reviewer's word forms, which
+#: silently withheld approved meaning from the answer that needed it.
+_SUFFIXES = ("ingly", "edly", "ing", "ies", "ed", "ly", "es", "s")
+
+#: A stem shorter than this is too generic to be evidence of anything.
+_MIN_STEM = 4
+
+
+def _stems(text: str) -> set[str]:
+    stems: set[str] = set()
+    for word in _WORD.findall(text.casefold()):
+        if len(word) <= 3:
+            continue
+        stems.add(_stem(word))
+    return stems
+
+
+def _stem(word: str) -> str:
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= _MIN_STEM:
+            stripped = word[: -len(suffix)]
+            # "ies" -> "y" keeps company/companies together.
+            return f"{stripped}y" if suffix == "ies" else stripped
+    return word
+
+
 def _overlap(question: str, text: str) -> int:
-    """Shared meaningful words. Small and deterministic, not a ranker."""
-    left = {word for word in _WORD.findall(question.casefold()) if len(word) > 3}
-    right = {word for word in _WORD.findall(text.casefold()) if len(word) > 3}
-    return len(left & right)
+    """Shared meaningful stems. Small and deterministic, not a ranker."""
+    return len(_stems(question) & _stems(text))
