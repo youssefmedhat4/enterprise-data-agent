@@ -64,6 +64,62 @@ class ConceptBinding:
         return f"{self.schema_name}.{self.table_name}.{self.column}"
 
 
+def tables_for_question(model: SemanticModel, question: str) -> frozenset[str]:
+    """Table identifiers whose confirmed meaning matches the question.
+
+    Table selection was lexical on physical names, which only finds a table
+    when the database happens to be named the way people speak. On an
+    abbreviated schema "active employees" matches nothing in `emp_mst`, so no
+    schema reached SQL generation and the request failed with nothing to point
+    at.
+
+    Confirmed meanings are what a reviewer agreed those objects are, so
+    matching against them works regardless of how the columns are spelled.
+    """
+    haystack = normalize_value(question)
+    if not haystack:
+        return frozenset()
+
+    entities = {entity.id: entity for entity in model.confirmed_entities()}
+    selected: set[str] = set()
+
+    asked = {word for word in haystack.split(" ") if len(word) > 3}
+
+    def mentions(term: str) -> bool:
+        """Whether the question refers to this concept.
+
+        Word overlap rather than whole-phrase containment: nobody asks for
+        "cost transaction" or "annual base salary" in those words, they ask
+        about costs and payroll. Requiring the full phrase matched almost
+        nothing and left real tables out of the schema offered to the model.
+
+        Short words are dropped from both sides so a concept cannot match on
+        "the" or on a three-letter fragment of an unrelated word.
+        """
+        words = {word for word in normalize_value(term).split(" ") if len(word) > 3}
+        if not words:
+            return False
+        # Singular and plural both count: "costs" should find "Cost".
+        return any(
+            word in asked or f"{word}s" in asked or word.rstrip("s") in asked
+            for word in words
+        )
+
+    for entity in entities.values():
+        identifier = f"{entity.source_schema}.{entity.source_table}"
+        if mentions(entity.entity_name) or mentions(entity.entity_name + "s"):
+            selected.add(identifier)
+
+    for attribute in model.confirmed_attributes():
+        owner = entities.get(attribute.entity_id)
+        if owner is None:
+            continue
+        if mentions(attribute.concept_name):
+            selected.add(f"{owner.source_schema}.{owner.source_table}")
+
+    return frozenset(selected)
+
+
 def sampleable_columns(model: SemanticModel) -> tuple[str, ...]:
     """Qualified columns worth sampling entity values from.
 

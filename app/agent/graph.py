@@ -37,6 +37,7 @@ from app.governance.gateway import (
     filter_authorized_governance,
 )
 from app.knowledge.composition import CompositionError, MetricResultSlice, compose
+from app.knowledge.discovery import SemanticModel
 from app.knowledge.fingerprints import adhoc_fingerprint, governed_fingerprint
 from app.knowledge.guidance import (
     ApprovedQueryExample,
@@ -66,6 +67,7 @@ from app.security.sql_validation import (
     SQLValidationError,
     SQLValidator,
 )
+from app.semantic.entities import tables_for_question
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
 
@@ -91,6 +93,7 @@ def build_graph(
     metric_registry: MetricRegistry | None = None,
     metric_intent_planner: MetricIntentPlanner | None = None,
     question_memory: QuestionMemory | None = None,
+    semantic_model: SemanticModel | None = None,
     guidance_store: InMemoryGuidanceStore | None = None,
     candidate_trigger: CandidateTrigger | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
@@ -113,15 +116,16 @@ def build_graph(
     governance = governance_gateway or DisabledGovernanceGateway()
     traces = trace_service or NoopTraceService()
     graph = StateGraph(AgentState)
+    semantic_governed = metric_registry is not None and metric_intent_planner is not None
     nodes: dict[str, Node] = {
         "prepare_request": _prepare_request(sql_generation_provider),
         "authorize_request": _authorize_request(
             db_gateway, authorizer, metric_registry, data_source_id
         ),
-        "route_query": _route_query(router),
+        "route_query": _route_query(router, semantic_governed),
         "plan_metric_request": _plan_metric_request(planner),
         "execute_metric": _execute_metric(metric_gateway),
-        "retrieve_schema": _retrieve_schema(semantics, governance),
+        "retrieve_schema": _retrieve_schema(semantics, governance, semantic_model),
         "generate_sql": _generate_sql(llm_gateway, guidance_store, data_source_id),
         "clarify": _clarify(db_gateway),
         "block": _block(db_gateway),
@@ -138,7 +142,6 @@ def build_graph(
         graph.add_node(name, _observed_node(name, node, traces))
     graph.set_entry_point("prepare_request")
     graph.add_edge("prepare_request", "authorize_request")
-    semantic_governed = metric_registry is not None and metric_intent_planner is not None
     if semantic_governed:
         assert metric_intent_planner is not None and metric_registry is not None
         graph.add_node(
@@ -327,7 +330,9 @@ def _authorize_request(
     return node
 
 
-def _route_query(router: DeterministicQueryRouter) -> Node:
+def _route_query(
+    router: DeterministicQueryRouter, semantic_governed: bool = False
+) -> Node:
     async def node(state: AgentState) -> AgentState:
         started = perf_counter()
         decision = router.route(
@@ -336,9 +341,23 @@ def _route_query(router: DeterministicQueryRouter) -> Node:
             allowed_metric_ids=state["authorized_metric_ids"],
         )
         if decision.reason_code.value == "unauthorized_metric":
-            raise AuthorizationDeniedError(
-                "The requested governed metric is outside the authorized scope."
-            )
+            if semantic_governed:
+                # The router matches aliases from the built-in catalog, which
+                # describes one database. On a datasource that simply does not
+                # define that metric, "unauthorized" is the wrong reading: the
+                # metric is absent, not forbidden. Semantic planning decides
+                # governed routing now, so fall through to it rather than
+                # refusing a question the datasource can answer ad-hoc.
+                decision = decision.model_copy(
+                    update={
+                        "route": QueryRoute.ADHOC_ANALYTICS,
+                        "metric_candidates": (),
+                    }
+                )
+            else:
+                raise AuthorizationDeniedError(
+                    "The requested governed metric is outside the authorized scope."
+                )
         update: AgentState = {
             "route_decision": decision,
             "execution_route": decision.route.value,
@@ -626,9 +645,16 @@ async def _compose_governed_rows(
         ) from exc
 
 
+#: How much schema to offer when neither lexical nor semantic narrowing
+#: matched. Enough for a small database to be answerable, small enough that
+#: a large one cannot fill the context window.
+MAX_UNNARROWED_TABLES = 12
+
+
 def _retrieve_schema(
     semantic_gateway: SemanticGateway,
     governance_gateway: GovernanceGateway,
+    semantic_model: SemanticModel | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         authorized = state["available_metadata"]
@@ -660,9 +686,29 @@ def _retrieve_schema(
                 discovered=state.get("discovered_metadata", available),
             )
         ]
+        # Physical-name matching finds nothing on a schema whose tables are
+        # abbreviated, which leaves SQL generation with no schema at all.
+        # Confirmed meanings are independent of spelling, so they select tables
+        # the lexical pass cannot see.
+        retrieved = list(context.tables)
+        if semantic_model is not None:
+            wanted = tables_for_question(semantic_model, state["resolved_question"])
+            known = {table.identifier for table in retrieved}
+            retrieved.extend(
+                table
+                for table in available
+                if table.identifier in wanted and table.identifier not in known
+            )
+        if not retrieved and available:
+            # Narrowing found nothing, but the caller is authorized for these
+            # tables. Offering the authorized schema lets the model read the
+            # database and decide; offering nothing guarantees a non-answer and
+            # tells the user only that the system could not see its own data.
+            # Bounded, so a wide schema cannot flood the prompt.
+            retrieved = available[:MAX_UNNARROWED_TABLES]
         return {
             "available_metadata": available,
-            "retrieved_metadata": context.tables,
+            "retrieved_metadata": retrieved,
             "selected_schema_ids": context.table_ids,
             "semantic_definitions": definitions,
             "semantic_definition_ids": [item.identifier for item in definitions],

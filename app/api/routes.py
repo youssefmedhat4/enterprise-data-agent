@@ -270,6 +270,19 @@ async def readiness(
         await db_gateway.close()
 
 
+async def _semantic_model_for(
+    knowledge: KnowledgeRuntime, data_source_id: UUID
+) -> Any:
+    """The datasource's confirmed semantic model, or None if there is none."""
+    if knowledge.semantics is None:
+        return None
+    try:
+        return await knowledge.semantics.load(data_source_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("semantic load failed: %s", type(exc).__name__)
+        return None
+
+
 async def _sample_columns_for(
     knowledge: KnowledgeRuntime, data_source_id: UUID
 ) -> tuple[str, ...]:
@@ -381,6 +394,9 @@ async def query_analytics(
         question_memory=(
             knowledge.memory if settings.question_memory_enabled else None
         ),
+        # Confirmed meanings select tables when physical names do not
+        # resemble how anyone asks the question.
+        semantic_model=await _semantic_model_for(knowledge, active_data_source_id),
         guidance_store=knowledge.guidance,
         # Only when learning is enabled and the queue is persistent: an
         # in-memory queue would neither coordinate workers nor survive restart.
