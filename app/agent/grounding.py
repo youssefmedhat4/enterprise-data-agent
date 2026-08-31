@@ -11,13 +11,26 @@ _PROSE_NUMERAL = re.compile(r"(?<![\w-])-?\d[\d,]*(?:\.\d+)?(?![\w-])")
 _ROW_COUNT_LEFT = re.compile(
     r"(?:\b(?:result|query|response|output)\s+"
     r"(?:contains?|contained|returns?|returned|has|includes?|included|produces?|produced)"
+    r"|\b(?:there\s+(?:are|were)|a\s+total\s+of|we\s+(?:have|found|identified))"
     r"|\b(?:across|in)\s+(?:all\s+)?)\s*$",
     re.IGNORECASE,
 )
+#: A plural noun within a few words of the numeral. The previous rule listed the
+#: nouns it would accept -- "rows", "records", "departments", "categories" --
+#: which is the demo database's vocabulary written into general code. On a
+#: schema whose entities are employees or projects, a correct count of the rows
+#: returned was rejected as an unsupported claim and a right answer was thrown
+#: away. What makes such a numeral verifiable is that it equals the row count,
+#: not which noun happens to follow it.
 _ROW_COUNT_RIGHT = re.compile(
-    r"^\s+(?:result\s+)?(?:rows?|records?|results?|departments?|categories?)\b",
+    r"^\s+(?:[A-Za-z][\w-]*\s+){0,3}[A-Za-z][\w-]*s\b",
     re.IGNORECASE,
 )
+#: Plural nouns that make a numeral an amount rather than a count of things.
+_AMOUNT_NOUNS = frozenset(
+    {"dollars", "euros", "pounds", "cents", "percent", "points", "times"}
+)
+_AMOUNT_PREFIX = re.compile(r"[$€£¥]\s*$")
 _RANK_LEFT = re.compile(
     r"\b(?:rank(?:ed|ing)?|position(?:ed)?|place(?:d)?|top)"
     r"(?:\s+(?:at|as|number))?\s*$",
@@ -136,11 +149,31 @@ def _is_supported_structural_numeral(
     integer = int(number)
     left = answer[max(0, start - 80) : start]
     right = answer[end : min(len(answer), end + 40)]
-    if integer == row_count and _ROW_COUNT_LEFT.search(left) and _ROW_COUNT_RIGHT.search(right):
+    if integer == row_count and _is_row_count_wording(left, right):
         return True
     return 1 <= integer <= row_count and bool(
         _RANK_LEFT.search(left) or _RANK_RIGHT.search(right)
     )
+
+
+def _is_row_count_wording(left: str, right: str) -> bool:
+    """Whether this numeral is stated as how many things were returned.
+
+    Deliberately does not require both sides to match. "There are 42 active
+    employees" and "42 active employees have..." are the same claim about the
+    same result, and demanding explicit result-shape wording on the left only
+    ever accepted answers that sounded like a database talking about itself.
+
+    The numeral still has to equal the row count exactly, which is what makes
+    it verifiable; this only decides whether it is being used as a count.
+    """
+    if _AMOUNT_PREFIX.search(left):
+        return False
+    following = _ROW_COUNT_RIGHT.search(right)
+    if following is not None:
+        noun = following.group(0).split()[-1].casefold()
+        return noun not in _AMOUNT_NOUNS
+    return _ROW_COUNT_LEFT.search(left) is not None
 
 
 def _values_equal(expected: Scalar, actual: object) -> bool:

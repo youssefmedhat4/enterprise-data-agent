@@ -96,15 +96,43 @@ class SQLValidator:
             "projects",
         }
     )
+    #: Everything here is deterministic, read-only, and confined to the values
+    #: already in the result. The list is an allowlist because the failure mode
+    #: of missing one is a rejected query, while the failure mode of admitting
+    #: a wrong one is data leaving the database.
+    #:
+    #: `exists`, `any` and `all` are subquery *predicates*, not calls, and
+    #: without them "projects invoiced but with no posted cost" cannot be
+    #: written the natural way at all -- the anti-join question was refused as
+    #: unsafe on every schema. The date and number conversions matter for the
+    #: same reason on any database that stores a date as text, which older
+    #: schemas routinely do.
+    #:
+    #: Pattern-matching functions are deliberately absent: a caller-supplied
+    #: expression is a cost the read-only role and statement timeout do not
+    #: bound.
     allowed_functions: frozenset[str] = frozenset(
         {
-            "abs", "and", "array_agg", "avg", "bool_and", "bool_or", "case",
-            "cast", "ceil", "ceiling", "char_length", "coalesce", "concat",
-            "count", "current_date", "current_timestamp", "date_trunc", "dense_rank",
-            "extract", "first_value", "floor", "greatest", "if", "lag", "last_value",
-            "lead", "least", "length", "lower", "ltrim", "max", "min", "nth_value",
-            "nullif", "or", "percent_rank", "rank", "replace", "round", "row_number",
-            "rtrim", "string_agg", "substring", "sum", "to_char", "trim", "upper",
+            "abs", "age", "all", "and", "any", "array_agg", "avg", "bool_and",
+            "bool_or", "case", "cast", "ceil", "ceiling", "char_length",
+            "coalesce", "concat", "concat_ws", "corr", "count", "cume_dist",
+            "current_date", "current_timestamp", "date_part", "date_trunc",
+            "dense_rank", "div", "every", "exists", "extract", "first_value",
+            "floor", "greatest", "if", "initcap", "lag", "last_value", "lead",
+            "least", "left", "length", "lower", "lpad", "ltrim", "max", "min",
+            "mod", "mode", "nth_value", "ntile", "nullif", "or",
+            "percent_rank", "percentile_cont", "percentile_disc", "position",
+            "power", "rank", "replace", "reverse", "right", "round",
+            "row_number", "rpad", "rtrim", "sign", "split_part", "sqrt",
+            "starts_with", "stddev", "stddev_pop", "stddev_samp",
+            # SQLGlot canonicalises names, so the allowlist is written in its
+            # vocabulary: `to_date` parses as `str_to_date`, `to_timestamp` as
+            # `str_to_time`, `position`/`strpos` as `str_position`. Listing the
+            # surface spelling alone silently rejects the function.
+            "str_position", "str_to_date", "str_to_time", "string_agg",
+            "strpos", "substring", "sum", "to_char", "to_date", "to_number",
+            "to_timestamp", "translate", "trim", "trunc", "upper", "var_pop",
+            "var_samp", "variance",
         }
     )
     prohibited_functions: frozenset[str] = frozenset(

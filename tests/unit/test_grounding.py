@@ -240,3 +240,58 @@ def test_null_ranking_and_percentage_evidence_are_supported() -> None:
         claims=claims,
         rows=rows,
     )
+
+
+def _rows(count: int) -> list[dict[str, object]]:
+    return [{"emp_no": 1000 + index, "emp_nm": f"E{index}"} for index in range(count)]
+
+
+def _one_claim() -> list[GroundedClaim]:
+    return [
+        GroundedClaim(
+            claim="first",
+            evidence=[ClaimEvidence(row_index=0, field="emp_no", value=1000)],
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # The count of what was asked about, in the words a person would use.
+        "42 active employees have had more than one compensation change.",
+        "There are 42 active employees with multiple changes.",
+        "A total of 42 employees qualify.",
+        # Explicit result-shape wording keeps working.
+        "The query returned 42 rows.",
+    ],
+)
+def test_a_numeral_equal_to_the_row_count_is_supported(answer: str) -> None:
+    """A right answer was thrown away because of the noun it used.
+
+    The rule used to accept only "rows", "records", "departments" or
+    "categories" -- the demo database's vocabulary. On a schema of employees or
+    projects, a correct count was rejected as an invented number.
+    """
+    assert GroundingValidator().validate(
+        answer=answer, claims=_one_claim(), rows=_rows(42)
+    )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # Equal to the row count, but stated as money rather than a count.
+        "Total payroll is $42 dollars.",
+        "The amount is $42 across the board.",
+        "We paid 42 dollars.",
+        # Not the row count at all.
+        "There are 41 active employees.",
+        "Revenue grew by 99 percent.",
+    ],
+)
+def test_a_numeral_that_is_not_a_count_of_the_result_is_refused(answer: str) -> None:
+    with pytest.raises(GroundingFailureError):
+        GroundingValidator().validate(
+            answer=answer, claims=_one_claim(), rows=_rows(42)
+        )
