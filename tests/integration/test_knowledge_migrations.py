@@ -19,7 +19,10 @@ from psycopg import errors
 
 from app.config import Settings
 from app.knowledge.migrations import MigrationError, apply_migrations
-from tests.support.knowledge_database import ensure_test_database
+from tests.support.knowledge_database import (
+    assert_is_test_database,
+    ensure_test_database,
+)
 
 
 @pytest.mark.postgres
@@ -44,6 +47,7 @@ async def _exercise_migrations() -> None:
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         # Start from a clean schema so the run is repeatable.
         async with conn.cursor() as cursor:
+            assert_is_test_database(dsn)
             await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
 
         applied = await apply_migrations(conn)
@@ -58,7 +62,8 @@ async def _exercise_migrations() -> None:
         await _assert_embedding_dimension_must_match_vector(conn)
 
         async with conn.cursor() as cursor:
-            await cursor.execute("DROP SCHEMA knowledge CASCADE")
+            assert_is_test_database(dsn)
+            await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
 
 
 async def _assert_tables_exist(conn: psycopg.AsyncConnection[object]) -> None:
@@ -198,6 +203,7 @@ async def _exercise_checksum_guard() -> None:
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
+            assert_is_test_database(dsn)
             await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
         await apply_migrations(conn)
 
@@ -211,4 +217,5 @@ async def _exercise_checksum_guard() -> None:
             await apply_migrations(conn)
 
         async with conn.cursor() as cursor:
-            await cursor.execute("DROP SCHEMA knowledge CASCADE")
+            assert_is_test_database(dsn)
+            await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")

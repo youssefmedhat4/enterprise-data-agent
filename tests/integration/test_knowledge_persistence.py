@@ -46,7 +46,10 @@ from app.knowledge.postgres_metrics import PostgresMetricRegistry
 from app.knowledge.postgres_semantics import PostgresSemanticRepository
 from app.knowledge.seed import registered_metrics_for_default_datasource
 from app.semantic.entities import EntityResolver
-from tests.support.knowledge_database import ensure_test_database
+from tests.support.knowledge_database import (
+    assert_is_test_database,
+    ensure_test_database,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -89,6 +92,7 @@ async def _exercise() -> None:
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
+            assert_is_test_database(dsn)
             await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
         assert await apply_migrations(conn), "expected a clean migration"
         assert await apply_migrations(conn) == [], "rerun must apply nothing"
@@ -403,12 +407,15 @@ def test_the_knowledge_pool_can_run_multi_statement_migrations() -> None:
 
 
 async def _exercise_pool_runs_migrations() -> None:
-    settings = Settings()
-    if settings.checkpoint_database_url is None:
-        pytest.skip("CHECKPOINT_DATABASE_URL is not configured.")
+    # The isolated database, and a Settings pointing at it. Using the
+    # configured one here is what destroyed a developer's onboarded datasource
+    # and reviewed mappings twice; the guard below now refuses it outright.
+    dsn = await ensure_test_database()
+    assert_is_test_database(dsn)
+    settings = Settings(CHECKPOINT_DATABASE_URL=dsn)
 
     async with await psycopg.AsyncConnection.connect(
-        settings.checkpoint_database_url.get_secret_value(), autocommit=True
+        dsn, autocommit=True
     ) as conn, conn.cursor() as cursor:
         await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
 

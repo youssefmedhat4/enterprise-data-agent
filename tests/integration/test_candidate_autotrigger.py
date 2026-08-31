@@ -38,7 +38,10 @@ from app.knowledge.postgres_metrics import PostgresMetricRegistry
 from app.knowledge.seed import registered_metrics_for_default_datasource
 from app.knowledge.triggers import CandidateTrigger
 from app.llm.gateway import LLMGateway, ResponseModelT
-from tests.support.knowledge_database import ensure_test_database
+from tests.support.knowledge_database import (
+    assert_is_test_database,
+    ensure_test_database,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -116,6 +119,7 @@ async def _exercise() -> None:
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
+            assert_is_test_database(dsn)
             await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
         await apply_migrations(conn)
         async with conn.cursor() as cursor:

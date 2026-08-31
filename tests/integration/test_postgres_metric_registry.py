@@ -22,7 +22,10 @@ from app.knowledge.metrics import MetricStatus
 from app.knowledge.migrations import apply_migrations
 from app.knowledge.postgres_metrics import MetricRegistryError, PostgresMetricRegistry
 from app.knowledge.seed import registered_metrics_for_default_datasource
-from tests.support.knowledge_database import ensure_test_database
+from tests.support.knowledge_database import (
+    assert_is_test_database,
+    ensure_test_database,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -62,6 +65,7 @@ async def _exercise_registry() -> None:
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor() as cursor:
+            assert_is_test_database(dsn)
             await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
         applied = await apply_migrations(conn)
         assert applied, "expected migrations to apply to a clean database"

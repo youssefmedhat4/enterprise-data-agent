@@ -39,7 +39,10 @@ from app.knowledge.seed import registered_metrics_for_default_datasource
 from app.knowledge.triggers import CandidateTrigger
 from app.knowledge.worker import KnowledgeJobWorker
 from app.llm.gateway import LLMGateway, LLMRateLimitError, ResponseModelT
-from tests.support.knowledge_database import ensure_test_database
+from tests.support.knowledge_database import (
+    assert_is_test_database,
+    ensure_test_database,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -116,6 +119,7 @@ def _run(coroutine: Any) -> None:
 async def _fresh_source(dsn: str, name: str, *, migrate: bool = False) -> UUID:
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         if migrate:
+            assert_is_test_database(dsn)
             async with conn.cursor() as cursor:
                 await cursor.execute("DROP SCHEMA IF EXISTS knowledge CASCADE")
             await apply_migrations(conn)

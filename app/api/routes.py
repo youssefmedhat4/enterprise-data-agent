@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Annotated, Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, Request
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -32,9 +32,10 @@ from app.contracts.analytics import (
 )
 from app.data.factory import build_database_gateway
 from app.data.gateway import DatabaseGateway, DatabaseUnavailableError
-from app.errors import ErrorResponse, normalize_error
+from app.errors import ApplicationError, ErrorCode, ErrorResponse, normalize_error
 from app.governance.factory import build_governance_gateway
 from app.governance.gateway import GovernanceGateway
+from app.knowledge.execution import DataSourceUnavailableError
 from app.knowledge.factory import build_metric_intent_planner
 from app.knowledge.runtime import KnowledgeRuntime, build_knowledge_runtime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
@@ -46,6 +47,7 @@ from app.metrics.gateway import MetricGateway, MetricProviderUnavailableError
 from app.observability.factory import build_trace_service
 from app.observability.gateway import TraceService
 from app.security.sql_validation import SQLValidator
+from app.semantic.entities import sampleable_columns
 from app.semantic.factory import build_semantic_gateway
 from app.semantic.gateway import SemanticGateway
 
@@ -268,6 +270,25 @@ async def readiness(
         await db_gateway.close()
 
 
+async def _sample_columns_for(
+    knowledge: KnowledgeRuntime, data_source_id: UUID
+) -> tuple[str, ...]:
+    """Columns the scanner may sample, from this datasource's confirmed model.
+
+    Empty when nothing has been reviewed yet, which leaves the configured name
+    list in charge -- the only sensible default for a database whose meaning
+    nobody has agreed yet.
+    """
+    if knowledge.semantics is None:
+        return ()
+    try:
+        model = await knowledge.semantics.load(data_source_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("semantic load failed: %s", type(exc).__name__)
+        return ()
+    return sampleable_columns(model)
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -310,6 +331,32 @@ async def query_analytics(
 ) -> AnalyticsResponse:
     request_id = getattr(http_request.state, "request_id", str(uuid4()))
     active_data_source_id = request.data_source_id or DEFAULT_DATA_SOURCE_ID
+    # The selected datasource decides which database is read, not just which
+    # knowledge applies. The client supplies an id and nothing else; the
+    # connection reference and its DSN are looked up server-side, so a request
+    # cannot point execution at a database of its choosing.
+    execution_gateway = db_gateway
+    execution_schemas = settings.database_allowed_schemas
+    if knowledge.execution is not None:
+        try:
+            context = await knowledge.execution.context_for(
+                active_data_source_id,
+                sample_columns=await _sample_columns_for(
+                    knowledge, active_data_source_id
+                ),
+            )
+        except DataSourceUnavailableError as exc:
+            # Never fall back to the default database: answering from a
+            # different source than the one asked for is worse than failing.
+            raise ApplicationError(
+                ErrorCode.DATABASE_UNAVAILABLE,
+                "The selected data source is unavailable.",
+                status_code=503,
+                retryable=True,
+                request_id=request_id,
+            ) from exc
+        execution_gateway = context.gateway
+        execution_schemas = context.allowed_schemas
     # Thread identity carries the datasource, so a thread started against one
     # database cannot supply prior context to another. Switching datasource in
     # the client yields a different thread key and therefore a fresh context.
@@ -318,9 +365,12 @@ async def query_analytics(
     # Per request, because the planner must use the model this request selected.
     intent_planner = build_metric_intent_planner(knowledge.retriever, llm_gateway)
     graph = build_graph(
-        db_gateway=db_gateway,
+        db_gateway=execution_gateway,
         llm_gateway=llm_gateway,
-        sql_validator=sql_validator,
+        sql_validator=SQLValidator(
+            max_rows=settings.query_row_limit,
+            allowed_schemas=frozenset(execution_schemas),
+        ),
         checkpointer=checkpointer,
         semantic_gateway=semantic_gateway,
         sql_generation_provider=settings.sql_generation_provider,
@@ -392,7 +442,11 @@ async def query_analytics(
         await governance_gateway.close()
         await authorization_gateway.close()
         await metric_gateway.close()
-        await db_gateway.close()
+        # A datasource gateway belongs to the provider's pool and is
+        # reused across requests; only the process-default one built for
+        # this request is closed here.
+        if execution_gateway is db_gateway:
+            await db_gateway.close()
     analytical_result = (
         AnalyticalResult.model_validate(result["analytical_result"])
         if result.get("analytical_result") is not None

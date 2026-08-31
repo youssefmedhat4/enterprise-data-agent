@@ -25,6 +25,7 @@ from app.embeddings.factory import build_embedding_gateway
 from app.knowledge.candidates import InMemoryCandidateStore
 from app.knowledge.database import KnowledgeDatabase, KnowledgeDatabaseError
 from app.knowledge.datasources import PostgresDataSourceRegistry
+from app.knowledge.execution import DataSourceRuntimeProvider
 from app.knowledge.guidance import InMemoryGuidanceStore
 from app.knowledge.jobs import PostgresGenerationJobQueue
 from app.knowledge.memory import InMemoryQuestionMemory
@@ -73,6 +74,7 @@ class KnowledgeRuntime:
     semantics: SemanticRepository | None
     jobs: PostgresGenerationJobQueue | None
     data_sources: Any | None
+    execution: Any | None
     retriever: MetricRetriever
     database: KnowledgeDatabase | None
     persistent: bool
@@ -103,6 +105,10 @@ class KnowledgeRuntime:
         )
 
     async def close(self) -> None:
+        # Datasource pools first: they are opened lazily per request and
+        # must not outlive the runtime that handed them out.
+        if self.execution is not None:
+            await self.execution.close()
         if self.database is not None:
             await self.database.close()
 
@@ -145,6 +151,7 @@ async def build_knowledge_runtime(
         semantics=PostgresSemanticRepository(pool),
         jobs=PostgresGenerationJobQueue(pool),
         data_sources=sources,
+        execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
         database=database,
         persistent=True,
@@ -169,6 +176,7 @@ async def _in_memory_runtime(
         semantics=None,
         jobs=None,
         data_sources=None,
+        execution=None,
         retriever=retriever,
         database=None,
         persistent=False,
