@@ -322,6 +322,13 @@ class AnalyticalResult(StrictContract):
     execution: ExecutionMetadata
 
 
+class ClarificationChoice(StrictContract):
+    """One canonical option offered when a value is ambiguous."""
+
+    value: str
+    label: str
+
+
 class AnalyticsResponse(StrictContract):
     # 1.1 widened `chart` from the original four fixed types to the AI-selected
     # visualization contract above. See ADR 0012.
@@ -343,6 +350,10 @@ class AnalyticsResponse(StrictContract):
     freshness: Freshness = Field(default_factory=Freshness)
     clarification_required: bool = False
     clarification_question: str | None = None
+    #: The options the clarification is asking between, so a client can offer
+    #: them rather than making the user retype one. Business identifiers and
+    #: labels only -- never the table or column they came from.
+    clarification_choices: list[ClarificationChoice] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     execution: ExecutionMetadata
 

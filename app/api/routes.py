@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from functools import lru_cache
 from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
@@ -27,6 +27,7 @@ from app.contracts.analytics import (
     AnalyticalResult,
     AnalyticsRequest,
     AnalyticsResponse,
+    ClarificationChoice,
     HealthResponse,
     InternalProvenance,
 )
@@ -309,6 +310,24 @@ def _sample_columns_from_model(model: Any) -> tuple[str, ...]:
     return () if model is None else sampleable_columns(model)
 
 
+def _clarification_choices(result: Mapping[str, Any]) -> list[ClarificationChoice]:
+    """Offer the options rather than making the user retype one.
+
+    Only what a person already sees in the question: the business identifier
+    and its label. Where the value lives stays inside.
+    """
+    pending = result.get("pending_entity_choice")
+    if pending is None:
+        return []
+    return [
+        ClarificationChoice(
+            value=choice.canonical_key,
+            label=f"{choice.display_value} ({choice.canonical_key})",
+        )
+        for choice in pending.choices
+    ]
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -536,6 +555,7 @@ async def query_analytics(
         chart=result.get("chart_spec"),
         clarification_required=result.get("needs_clarification", False),
         clarification_question=result.get("clarification_question"),
+        clarification_choices=_clarification_choices(result),
         warnings=result.get("warnings", []),
         execution=execution,
     )

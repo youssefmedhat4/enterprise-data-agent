@@ -24,9 +24,16 @@ import type { AnalyticsResponse } from "@/lib/types/analytics";
 interface AnalysisEntryProps {
   response: AnalyticsResponse;
   onOpenDetails: (response: AnalyticsResponse) => void;
+  onAsk: (question: string) => void;
+  disabled: boolean;
 }
 
-export function AnalysisEntry({ response, onOpenDetails }: AnalysisEntryProps) {
+export function AnalysisEntry({
+  response,
+  onOpenDetails,
+  onAsk,
+  disabled,
+}: AnalysisEntryProps) {
   const [copied, setCopied] = useState(false);
 
   // Display-only tidy-up of figures the model copied out of the raw result JSON.
@@ -46,14 +53,35 @@ export function AnalysisEntry({ response, onOpenDetails }: AnalysisEntryProps) {
   };
 
   if (response.status === "clarification_required") {
+    const choices = response.clarification_choices ?? [];
     return (
       <StateNotice
         tone="info"
         icon={<HelpCircle className="size-3.5" aria-hidden="true" />}
         label="Needs clarification"
-        body={response.clarification_question ?? response.answer}
-        footnote="Answer below and this analysis continues on the same thread."
-      />
+        body={clarificationPrompt(response)}
+        footnote={
+          choices.length > 0
+            ? "Pick one, or answer below. Either way this analysis continues."
+            : "Answer below and this analysis continues on the same thread."
+        }
+      >
+        {choices.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {choices.map((choice) => (
+              <button
+                key={choice.value}
+                type="button"
+                disabled={disabled}
+                onClick={() => onAsk(choice.value)}
+                className="rounded-full border border-border px-3 py-1.5 text-[13px] text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </StateNotice>
     );
   }
 
@@ -162,12 +190,14 @@ function StateNotice({
   label,
   body,
   footnote,
+  children,
 }: {
   tone: "info" | "warning";
   icon: React.ReactNode;
   label: string;
   body: string;
   footnote: string;
+  children?: React.ReactNode;
 }) {
   const accent = tone === "info" ? "text-info" : "text-warning";
   const bar = tone === "info" ? "bg-info" : "bg-warning";
@@ -193,7 +223,22 @@ function StateNotice({
       >
         {body}
       </p>
+      {children}
       <p className="mt-2 text-[12px] text-muted-foreground">{footnote}</p>
     </motion.div>
   );
+}
+
+/**
+ * The question without its inline list of options.
+ *
+ * When the options are rendered as buttons, repeating them mid-sentence as
+ * `OU2100 | Operations; OU2200 | Operations` reads like debug output. The
+ * backend still sends the full sentence for clients that cannot show choices.
+ */
+function clarificationPrompt(response: AnalyticsResponse): string {
+  const question = response.clarification_question ?? response.answer;
+  if ((response.clarification_choices ?? []).length === 0) return question;
+  const [stem] = question.split(":");
+  return stem === undefined || stem.trim() === "" ? question : `${stem.trim()}?`;
 }

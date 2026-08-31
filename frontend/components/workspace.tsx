@@ -303,6 +303,7 @@ export function Workspace() {
                       exchanges={exchanges}
                       onRetry={(id) => void retry(id)}
                       onOpenDetails={openDetails}
+                      onAsk={handleAsk}
                       isBusy={isBusy}
                     />
                   ) : null}

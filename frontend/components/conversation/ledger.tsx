@@ -25,6 +25,7 @@ interface LedgerProps {
   exchanges: Exchange[];
   onRetry: (exchangeId: string) => void;
   onOpenDetails: (response: AnalyticsResponse) => void;
+  onAsk: (question: string) => void;
   isBusy: boolean;
 }
 
@@ -32,6 +33,7 @@ export function Ledger({
   exchanges,
   onRetry,
   onOpenDetails,
+  onAsk,
   isBusy,
 }: LedgerProps) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -87,6 +89,8 @@ export function Ledger({
             <AnalysisEntry
               response={exchange.response}
               onOpenDetails={onOpenDetails}
+              onAsk={onAsk}
+              disabled={isBusy}
             />
           ) : null}
 

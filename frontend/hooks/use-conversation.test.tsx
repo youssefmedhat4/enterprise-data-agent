@@ -47,6 +47,7 @@ function response(profile: "gemini_pro" | "gemini"): AnalyticsResponse {
     freshness: { status: "unknown", as_of: null },
     clarification_required: false,
     clarification_question: null,
+    clarification_choices: [],
     warnings: [],
     execution: {
       query_id: null,

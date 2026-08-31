@@ -183,8 +183,20 @@ export interface AnalyticsResponse {
   freshness: Freshness;
   clarification_required: boolean;
   clarification_question: string | null;
+  clarification_choices: ClarificationChoice[];
   warnings: string[];
   execution: ExecutionMetadata;
+}
+
+/**
+ * One canonical option a clarification is asking between.
+ *
+ * `value` is the business identifier to send back; `label` is what a reader
+ * sees. Neither names the table or column it came from.
+ */
+export interface ClarificationChoice {
+  value: string;
+  label: string;
 }
 
 /** Stable error codes from `app/errors.py::ErrorCode`. */
