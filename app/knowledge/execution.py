@@ -144,6 +144,7 @@ class DataSourceRuntimeProvider:
                 database_url=dsn,
                 allowed_schemas=source.allowed_schemas,
                 sample_columns=sample_columns,
+                database_type=source.database_type,
             )
         except Exception as exc:
             # Type only: a DSN can appear in a driver or validation message.

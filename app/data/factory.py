@@ -23,6 +23,7 @@ def build_database_gateway_for(
     database_url: str,
     allowed_schemas: tuple[str, ...],
     sample_columns: tuple[str, ...] = (),
+    database_type: str = "postgres",
 ) -> DatabaseGateway:
     """A gateway pointed at one registered datasource.
 
@@ -31,11 +32,20 @@ def build_database_gateway_for(
     onboarded with weaker safety than the first. Only the connection and the
     schema scope differ, because those are properties of the database rather
     than of this deployment.
+
+    The *provider* comes from the datasource, not from the process. A
+    registered datasource names a real database; inheriting a process default
+    of `fake` would have answered a question about that database from fixtures
+    while reporting the datasource as its source, which is the same class of
+    error as executing against the wrong database entirely.
     """
+    if database_type != "postgres":
+        raise ValueError(f"Unsupported datasource database type: {database_type!r}")
     # `model_copy` deliberately skips validation, so the URL is coerced to the
     # same type the settings field declares rather than left as a plain string.
     scoped = settings.model_copy(
         update={
+            "database_provider": database_type,
             "database_url": PostgresDsn(database_url),
             "database_allowed_schemas_csv": ",".join(allowed_schemas),
             "database_sample_columns_csv": ",".join(sample_columns),
