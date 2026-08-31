@@ -4,6 +4,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  DEFAULT_DATA_SOURCE,
+  DEFAULT_DATA_SOURCE_ID,
+} from "@/lib/datasources/datasources";
 import { Composer } from "@/components/conversation/composer";
 import { ModelSelector } from "@/components/conversation/model-selector";
 
@@ -35,6 +39,9 @@ describe("ModelSelector", () => {
         isBusy: true,
         modelProfile: "gemini_pro",
         onModelProfileChange: vi.fn(),
+        dataSourceId: DEFAULT_DATA_SOURCE_ID,
+        dataSources: [DEFAULT_DATA_SOURCE],
+        onDataSourceChange: vi.fn(),
       }),
     );
 
@@ -50,6 +57,9 @@ describe("ModelSelector", () => {
       isBusy: false,
       modelProfile: "gemini" as const,
       onModelProfileChange: vi.fn(),
+        dataSourceId: DEFAULT_DATA_SOURCE_ID,
+        dataSources: [DEFAULT_DATA_SOURCE],
+        onDataSourceChange: vi.fn(),
     };
     const { rerender } = render(createElement(Composer, { ...props, tone: "focal" }));
     expect(screen.getByRole("button", { name: "Model: Gemini 2.5 Flash" })).toBeTruthy();

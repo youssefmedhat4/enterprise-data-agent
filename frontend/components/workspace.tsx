@@ -11,6 +11,12 @@ import { AmbientField } from "@/components/layout/ambient-field";
 import { Rail } from "@/components/layout/rail";
 import { ProvenancePanel } from "@/components/provenance/provenance-panel";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  DEFAULT_DATA_SOURCE,
+  DEFAULT_DATA_SOURCE_ID,
+  parseDataSources,
+  type DataSourceSummary,
+} from "@/lib/datasources/datasources";
 import { useConversation } from "@/hooks/use-conversation";
 import { useHealth } from "@/hooks/use-health";
 import { consoleRise, DUR, EASE_OUT, shellFade } from "@/lib/motion";
@@ -31,6 +37,7 @@ import {
 } from "@/lib/models/profiles";
 
 const MODEL_PROFILE_STORAGE_KEY = "eda.model-profile:v1";
+const DATA_SOURCE_STORAGE_KEY = "eda.data-source:v1";
 
 /**
  * The workspace shell.
@@ -53,6 +60,12 @@ export function Workspace() {
   const [modelProfile, setModelProfile] = useState<ModelProfile>(
     DEFAULT_MODEL_PROFILE,
   );
+  const [dataSources, setDataSources] = useState<DataSourceSummary[]>([
+    DEFAULT_DATA_SOURCE,
+  ]);
+  const [dataSourceId, setDataSourceId] = useState<string>(
+    DEFAULT_DATA_SOURCE_ID,
+  );
 
   const composerRef = useRef<ComposerHandle>(null);
   const health = useHealth();
@@ -62,6 +75,32 @@ export function Workspace() {
   useEffect(() => {
     const stored = sessionStorage.getItem(MODEL_PROFILE_STORAGE_KEY);
     if (isModelProfile(stored)) setModelProfile(stored);
+    const storedSource = sessionStorage.getItem(DATA_SOURCE_STORAGE_KEY);
+    if (storedSource !== null && storedSource !== "") {
+      setDataSourceId(storedSource);
+    }
+  }, []);
+
+  // Listing datasources needs review authority. An ordinary analyst gets 403,
+  // which is a normal outcome rather than an error: they keep querying the
+  // default database and simply see no picker.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/backend/knowledge/data-sources", {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) return;
+        const parsed = parseDataSources(await response.json());
+        if (!cancelled && parsed.length > 0) setDataSources(parsed);
+      } catch {
+        // Offline or unavailable: the default datasource still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleModelProfileChange = useCallback((profile: ModelProfile) => {
@@ -130,8 +169,21 @@ export function Workspace() {
   );
 
   const handleAsk = useCallback(
-    (question: string) => void ask(question, modelProfile),
-    [ask, modelProfile],
+    (question: string) => void ask(question, modelProfile, dataSourceId),
+    [ask, modelProfile, dataSourceId],
+  );
+
+  const handleDataSourceChange = useCallback(
+    (next: string) => {
+      if (next === dataSourceId) return;
+      setDataSourceId(next);
+      sessionStorage.setItem(DATA_SOURCE_STORAGE_KEY, next);
+      // A thread belongs to one database. Continuing the current thread against
+      // a different one would let the previous answer act as context for a
+      // database it never touched, so switching starts a fresh analysis.
+      startNewAnalysis();
+    },
+    [dataSourceId, startNewAnalysis],
   );
 
   const isResumed = threadId !== null && exchanges.length === 0;
@@ -218,6 +270,9 @@ export function Workspace() {
                     tone="focal"
                     modelProfile={modelProfile}
                     onModelProfileChange={handleModelProfileChange}
+                    dataSourceId={dataSourceId}
+                    dataSources={dataSources}
+                    onDataSourceChange={handleDataSourceChange}
                   />
                 }
               />
@@ -282,6 +337,9 @@ export function Workspace() {
                       placeholder="Ask a follow-up…"
                       modelProfile={modelProfile}
                       onModelProfileChange={handleModelProfileChange}
+                      dataSourceId={dataSourceId}
+                      dataSources={dataSources}
+                      onDataSourceChange={handleDataSourceChange}
                     />
                   </div>
                 </div>

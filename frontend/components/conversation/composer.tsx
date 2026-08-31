@@ -14,7 +14,9 @@ import {
 
 import { cn } from "@/lib/utils";
 import { DUR, EASE_OUT } from "@/lib/motion";
+import { DataSourceSelector } from "@/components/conversation/datasource-selector";
 import { ModelSelector } from "@/components/conversation/model-selector";
+import type { DataSourceSummary } from "@/lib/datasources/datasources";
 import type { ModelProfile } from "@/lib/models/profiles";
 
 /**
@@ -45,6 +47,9 @@ interface ComposerProps {
   tone?: "focal" | "docked";
   modelProfile: ModelProfile;
   onModelProfileChange: (profile: ModelProfile) => void;
+  dataSourceId: string;
+  dataSources: readonly DataSourceSummary[];
+  onDataSourceChange: (dataSourceId: string) => void;
 }
 
 export function Composer({
@@ -57,6 +62,9 @@ export function Composer({
   tone = "docked",
   modelProfile,
   onModelProfileChange,
+  dataSourceId,
+  dataSources,
+  onDataSourceChange,
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
@@ -191,12 +199,21 @@ export function Composer({
           focal ? "justify-between px-1" : "px-1",
         )}
       >
-        <ModelSelector
-          value={modelProfile}
-          onValueChange={onModelProfileChange}
-          disabled={isBusy}
-          compact={!focal}
-        />
+        <div className="flex min-w-0 items-center gap-1">
+          <DataSourceSelector
+            value={dataSourceId}
+            sources={dataSources}
+            onValueChange={onDataSourceChange}
+            disabled={isBusy}
+            compact={!focal}
+          />
+          <ModelSelector
+            value={modelProfile}
+            onValueChange={onModelProfileChange}
+            disabled={isBusy}
+            compact={!focal}
+          />
+        </div>
         <p className="hidden min-w-0 text-end sm:block">
           <kbd className="font-sans font-medium text-foreground">Enter</kbd> to send
           {isBusy ? (

@@ -24,6 +24,12 @@ export interface Exchange {
   question: string;
   askedAt: number;
   modelProfile: ModelProfile;
+  /**
+   * Which database answered. Retained per exchange so a retry re-runs against
+   * the same one: re-running against a different database would silently
+   * answer a different question.
+   */
+  dataSourceId: string;
   state: "pending" | "answered" | "failed" | "cancelled";
   response?: AnalyticsResponse;
   error?: ExchangeFailure;
@@ -56,7 +62,11 @@ export interface UseConversationResult {
   exchanges: Exchange[];
   threadId: string | null;
   isBusy: boolean;
-  ask: (question: string, modelProfile: ModelProfile) => Promise<void>;
+  ask: (
+    question: string,
+    modelProfile: ModelProfile,
+    dataSourceId: string,
+  ) => Promise<void>;
   retry: (exchangeId: string) => Promise<void>;
   cancel: () => void;
   startNewAnalysis: () => void;
@@ -80,7 +90,12 @@ export function useConversation(options: {
   const isBusy = pendingId !== null;
 
   const run = useCallback(
-    async (exchangeId: string, question: string, modelProfile: ModelProfile) => {
+    async (
+      exchangeId: string,
+      question: string,
+      modelProfile: ModelProfile,
+      dataSourceId: string,
+    ) => {
       const controller = new AbortController();
       abortRef.current = controller;
       setPendingId(exchangeId);
@@ -92,6 +107,7 @@ export function useConversation(options: {
             thread_id: threadRef.current,
             include_debug: true,
             model_profile: modelProfile,
+            data_source_id: dataSourceId,
           },
           { signal: controller.signal },
         );
@@ -140,7 +156,11 @@ export function useConversation(options: {
   );
 
   const ask = useCallback(
-    async (question: string, modelProfile: ModelProfile) => {
+    async (
+      question: string,
+      modelProfile: ModelProfile,
+      dataSourceId: string,
+    ) => {
       const trimmed = question.trim();
       if (trimmed === "") return;
       const id = newId();
@@ -151,10 +171,11 @@ export function useConversation(options: {
           question: trimmed,
           askedAt: Date.now(),
           modelProfile,
+          dataSourceId,
           state: "pending",
         },
       ]);
-      await run(id, trimmed, modelProfile);
+      await run(id, trimmed, modelProfile, dataSourceId);
     },
     [run],
   );
@@ -169,7 +190,12 @@ export function useConversation(options: {
           return { ...exchange, state: "pending", error: undefined };
         }),
       );
-      await run(exchangeId, exchange.question, exchange.modelProfile);
+      await run(
+        exchangeId,
+        exchange.question,
+        exchange.modelProfile,
+        exchange.dataSourceId,
+      );
     },
     [exchanges, run],
   );

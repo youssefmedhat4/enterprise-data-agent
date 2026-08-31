@@ -23,6 +23,8 @@ export interface AnalyticsRequest {
   thread_id?: string | null;
   include_debug?: boolean;
   model_profile?: ModelProfile;
+  /** Which registered database to answer from. Omitted means the default. */
+  data_source_id?: string;
 }
 
 /**
@@ -168,6 +170,8 @@ export interface AnalyticsResponse {
   request_id: string;
   thread_id: string;
   model_profile: ModelProfile;
+  /** Which database answered, so an exchange stays bound to it. */
+  data_source_id: string;
   model_display_name: string;
   status: AnalyticsStatus;
   answer: string;

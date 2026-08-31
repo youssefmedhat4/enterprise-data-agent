@@ -3,6 +3,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_DATA_SOURCE_ID } from "@/lib/datasources/datasources";
 import { useConversation } from "@/hooks/use-conversation";
 import { postAnalyticsQuery } from "@/lib/api/analytics";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
@@ -18,6 +19,7 @@ function response(profile: "gemini_pro" | "gemini"): AnalyticsResponse {
     schema_version: "1.1",
     request_id: "request-1",
     thread_id: "thread-1",
+    data_source_id: DEFAULT_DATA_SOURCE_ID,
     model_profile: profile,
     model_display_name: profile === "gemini_pro" ? "Gemini 3.1 Pro Preview" : "Gemini 2.5 Flash",
     status: "completed",
@@ -71,7 +73,7 @@ describe("useConversation model identity", () => {
       useConversation({ onThreadEstablished: vi.fn() }),
     );
 
-    await act(() => result.current.ask("Show payroll", "gemini"));
+    await act(() => result.current.ask("Show payroll", "gemini", DEFAULT_DATA_SOURCE_ID));
 
     expect(postQuery).toHaveBeenCalledWith(
       expect.objectContaining({ model_profile: "gemini" }),
@@ -89,7 +91,7 @@ describe("useConversation model identity", () => {
       useConversation({ onThreadEstablished: vi.fn() }),
     );
 
-    await act(() => result.current.ask("Show payroll", "gemini_pro"));
+    await act(() => result.current.ask("Show payroll", "gemini_pro", DEFAULT_DATA_SOURCE_ID));
     const exchangeId = result.current.exchanges[0]?.id;
     expect(exchangeId).toBeTruthy();
 

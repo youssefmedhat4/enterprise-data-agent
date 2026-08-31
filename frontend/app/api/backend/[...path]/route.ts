@@ -12,8 +12,22 @@ const BACKEND_ORIGIN = (
   process.env.ANALYTICS_API_URL ?? "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
 
-/** Only these prefixes are proxied. The route is not an open relay. */
+/** Only these paths are proxied. The route is not an open relay. */
 const ALLOWED_PATHS = ["analytics/query", "health", "health/live", "health/ready"];
+
+/**
+ * Knowledge administration paths, matched by shape rather than listed one by
+ * one because they carry a datasource id and a resource id. Kept as an explicit
+ * pattern so the route still refuses anything it does not recognise: the
+ * backend enforces review authority regardless, but the proxy should not be a
+ * general tunnel to it.
+ */
+const KNOWLEDGE_PATH =
+  /^knowledge\/data-sources(\/[0-9a-f-]{36}\/(semantics|clusters|candidates|metrics|examples)(\/[0-9a-f-]{36}\/review)?)?$/;
+
+function isAllowed(target: string): boolean {
+  return ALLOWED_PATHS.includes(target) || KNOWLEDGE_PATH.test(target);
+}
 
 /** Long enough for a model-backed analytical query to finish. */
 const UPSTREAM_TIMEOUT_MS = 240_000;
@@ -35,7 +49,7 @@ async function proxy(
   const { path } = await context.params;
   const target = path.join("/");
 
-  if (!ALLOWED_PATHS.includes(target)) {
+  if (!isAllowed(target)) {
     return reject(404, "invalid_request", "Unknown analytics endpoint.");
   }
 
