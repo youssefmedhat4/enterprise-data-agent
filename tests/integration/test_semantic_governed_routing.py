@@ -16,6 +16,7 @@ import pytest
 from app.agent.graph import build_graph
 from app.data.fake import FakeDatabaseGateway
 from app.embeddings.fake import HashingEmbeddingGateway
+from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricStatus
 from app.knowledge.planner import MetricIntentPlanner, MetricSelection
 from app.knowledge.retrieval import MetricRetriever
@@ -87,6 +88,7 @@ async def semantic_graph(
     metrics_gateway: FakeMetricGateway | None = None,
     registry_metrics: list[Any] | None = None,
     generate_answer: bool = False,
+    question_memory: InMemoryQuestionMemory | None = None,
 ) -> tuple[Any, FakeMetricGateway, FakeDatabaseGateway]:
     seeded = (
         registry_metrics
@@ -108,6 +110,7 @@ async def semantic_graph(
         metric_gateway=gateway,
         metric_registry=registry,
         metric_intent_planner=planner,
+        question_memory=question_memory,
         enable_query_router=True,
         generate_answer=generate_answer,
     )
@@ -296,3 +299,53 @@ async def test_semantic_routing_does_not_depend_on_literal_alias_matching() -> N
 
     assert result["execution_route"] == "governed_metric"
     assert metrics.queries[0].metric == "annual_base_payroll"
+
+
+@pytest.mark.anyio
+async def test_a_governed_request_is_remembered_with_its_structure() -> None:
+    """Memory records through the real graph, and records shape not answer."""
+    memory = InMemoryQuestionMemory()
+    llm = SelectingLLM(
+        MetricSelection(
+            intent="governed",
+            metrics=["annual_base_payroll"],
+            dimensions=["department"],
+        )
+    )
+    graph, _, _ = await semantic_graph(llm, question_memory=memory)
+
+    await run(graph, PARAPHRASE)
+
+    clusters = await memory.clusters(DEFAULT_DATA_SOURCE_ID)
+    assert len(clusters) == 1
+    assert "annual_base_payroll" in clusters[0].structural_fingerprint
+    assert "department" in clusters[0].structural_fingerprint
+    events = await memory.events_for_cluster(
+        DEFAULT_DATA_SOURCE_ID, clusters[0].id
+    )
+    assert events[0].metric_keys == ("annual_base_payroll",)
+    assert events[0].route == "governed_metric"
+
+
+@pytest.mark.anyio
+async def test_repeated_paraphrases_accumulate_one_cluster_through_the_graph() -> None:
+    memory = InMemoryQuestionMemory()
+    llm = SelectingLLM(
+        MetricSelection(
+            intent="governed",
+            metrics=["annual_base_payroll"],
+            dimensions=["department"],
+        )
+    )
+    graph, _, _ = await semantic_graph(llm, question_memory=memory)
+
+    for phrasing in (
+        PARAPHRASE,
+        "salary spending for every team",
+        "yearly employee compensation by organizational unit",
+    ):
+        await run(graph, phrasing)
+
+    clusters = await memory.clusters(DEFAULT_DATA_SOURCE_ID)
+    assert len(clusters) == 1
+    assert clusters[0].occurrence_count == 3

@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -36,6 +37,8 @@ from app.governance.gateway import (
     filter_authorized_governance,
 )
 from app.knowledge.composition import CompositionError, MetricResultSlice, compose
+from app.knowledge.fingerprints import adhoc_fingerprint, governed_fingerprint
+from app.knowledge.memory import QuestionEvent, QuestionMemory
 from app.knowledge.metrics import MetricRegistry
 from app.knowledge.planner import MetricIntentPlanner, ValidatedMetricPlan
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
@@ -60,6 +63,8 @@ from app.security.sql_validation import (
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
 
+logger = logging.getLogger(__name__)
+
 
 class Node(Protocol):
     async def __call__(self, state: AgentState) -> AgentState: ...
@@ -79,6 +84,7 @@ def build_graph(
     metric_planner: MetricRequestPlanner | None = None,
     metric_registry: MetricRegistry | None = None,
     metric_intent_planner: MetricIntentPlanner | None = None,
+    question_memory: QuestionMemory | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     enable_query_router: bool = False,
     authorization_gateway: AuthorizationGateway | None = None,
@@ -116,7 +122,7 @@ def build_graph(
         "execute_sql": _execute_sql(db_gateway),
         "ground_answer": _ground_answer(db_gateway, llm_gateway),
         "finalize_sql_result": _finalize_sql_result(db_gateway),
-        "record_context": _record_context(),
+        "record_context": _record_context(question_memory, data_source_id),
     }
     for name, node in nodes.items():
         graph.add_node(name, _observed_node(name, node, traces))
@@ -1037,7 +1043,10 @@ def _finalize_sql_result(db_gateway: DatabaseGateway) -> Node:
     return node
 
 
-def _record_context() -> Node:
+def _record_context(
+    memory: QuestionMemory | None = None,
+    data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
+) -> Node:
     async def node(state: AgentState) -> AgentState:
         plan = state.get("analysis_plan", AnalysisPlan())
         context = AnalyticalContext(
@@ -1069,9 +1078,64 @@ def _record_context() -> Node:
             answer=state["final_answer"],
             query_id=state.get("query_id"),
         )
+        if memory is not None:
+            await _remember_question(memory, state, data_source_id)
         return {"analytical_context": context, "conversation_turns": [turn]}
 
     return node
+
+
+async def _remember_question(
+    memory: QuestionMemory,
+    state: AgentState,
+    data_source_id: UUID,
+) -> None:
+    """Record what was asked and what shape answered it. Never the answer.
+
+    Runs at the terminal node so route, validation and grounding outcomes are
+    all known, which is what lets a later reader distinguish evidence worth
+    trusting from a request that merely finished.
+
+    Remembering must never break answering: a memory failure is logged by
+    exception type and swallowed, because the caller already has a correct
+    result and losing the learning signal is the lesser harm.
+    """
+    route = state.get("execution_route") or "unknown"
+    metric_keys: tuple[str, ...] = ()
+    if route == QueryRoute.GOVERNED_METRIC.value and state.get("metric_query"):
+        extra = state.get("additional_metric_queries") or []
+        metric_keys = tuple(
+            query.metric for query in (state["metric_query"], *extra)
+        )
+        fingerprint = governed_fingerprint(
+            metric_keys=metric_keys,
+            dimensions=state["metric_query"].dimensions,
+        )
+    else:
+        fingerprint = adhoc_fingerprint(state.get("validated_sql") or "")
+
+    execution = state.get("execution_metadata")
+    event = QuestionEvent(
+        data_source_id=data_source_id,
+        question_text=state["question"],
+        structural_fingerprint=fingerprint,
+        route=route,
+        thread_id=state.get("thread_id"),
+        metric_keys=metric_keys,
+        success=execution is not None and execution.status == "completed",
+        validated=(
+            route == QueryRoute.GOVERNED_METRIC.value
+            or state.get("validated_sql") is not None
+        ),
+        # Claims exist only when grounding accepted the answer.
+        grounded=bool(state.get("claims")),
+    )
+    try:
+        await memory.record(event)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "question memory record failed: %s", type(exc).__name__
+        )
 
 
 def _model_aliases(state: AgentState) -> list[str]:

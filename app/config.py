@@ -276,6 +276,32 @@ class Settings(BaseSettings):
         le=3072,
         alias="EMBEDDING_DIMENSION",
     )
+    #: Whether terminal analytics requests are remembered as product data.
+    #: Off by default: retaining question text is a decision an operator makes
+    #: deliberately, not something that starts happening on upgrade.
+    question_memory_enabled: bool = Field(
+        default=False,
+        alias="QUESTION_MEMORY_ENABLED",
+    )
+    #: How much recurrence justifies proposing reusable knowledge. Conservative
+    #: defaults: a handful of one-off questions is not a pattern. Tests override
+    #: these with small values so behaviour stays deterministic.
+    question_cluster_min_occurrences: int = Field(
+        default=5,
+        ge=1,
+        alias="QUESTION_CLUSTER_MIN_OCCURRENCES",
+    )
+    question_cluster_min_successful: int = Field(
+        default=3,
+        ge=1,
+        alias="QUESTION_CLUSTER_MIN_SUCCESSFUL",
+    )
+    question_cluster_similarity_threshold: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        alias="QUESTION_CLUSTER_SIMILARITY_THRESHOLD",
+    )
     llm_model_gemini_pro_analytics_general: str = Field(
         default="gemini/gemini-3.1-pro-preview",
         alias="LLM_MODEL_GEMINI_PRO_ANALYTICS_GENERAL",
