@@ -300,25 +300,42 @@ def test_vertex_aliases_receive_adc_project_options_without_api_keys() -> None:
     }
 
 
-def test_gemini_pro_profile_uses_the_api_key_path_not_vertex() -> None:
-    """`gemini/` is the Google AI Studio path; the bare id would resolve to Vertex."""
+def test_gemini_pro_uses_vertex_with_adc_and_needs_no_api_key() -> None:
+    """Vertex bills the project and authenticates with ADC, so no key is required."""
     settings = Settings(
         LLM_PROVIDER="litellm",
-        GEMINI_API_KEY="test-key-not-real",
         ALLOW_CLOUD_DATABASE_DATA=True,
         VERTEXAI_PROJECT="test-project",
+        GEMINI_API_KEY=None,
     )
 
     profile = settings.resolve_model_profile("gemini_pro")
 
     assert profile.display_name == "Gemini 3.1 Pro Preview"
-    assert profile.physical_models == ["gemini/gemini-3.1-pro-preview"]
-    assert settings.model_provider("gemini/gemini-3.1-pro-preview") == "gemini"
-    # The API-key path must not carry Vertex project/location options.
-    assert profile.model_options_by_alias == {}
-    assert set(profile.api_keys_by_alias) == {"analytics-general", "sql-reasoner"}
+    assert profile.physical_models == ["vertex_ai/gemini-3.1-pro-preview"]
+    assert settings.model_provider("vertex_ai/gemini-3.1-pro-preview") == "vertex_ai"
+    # No key is needed, and none is carried.
+    assert settings.required_api_key_name("vertex_ai/gemini-3.1-pro-preview") is None
+    assert profile.api_keys_by_alias == {}
+    # Project and location come from configuration rather than being hardcoded.
+    for options in profile.model_options_by_alias.values():
+        assert options["vertex_project"] == "test-project"
+        assert options["vertex_location"] == "global"
     # Structured output stays on response_format; no model-specific JSON hacks.
     assert profile.structured_output_modes_by_alias == {}
+
+
+def test_vertex_gemini_still_requires_cloud_data_approval() -> None:
+    """ADC authenticates the caller; it does not make Vertex local."""
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        DATABASE_PROVIDER="postgres",
+        ALLOW_CLOUD_DATABASE_DATA=False,
+        VERTEXAI_PROJECT="test-project",
+    )
+
+    with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA"):
+        settings.resolve_model_profile("gemini_pro")
 
 
 def test_gemini_pro_is_the_default_selectable_profile() -> None:

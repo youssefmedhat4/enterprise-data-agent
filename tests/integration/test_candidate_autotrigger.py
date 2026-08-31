@@ -123,7 +123,7 @@ async def _exercise() -> None:
                 " (name, database_type, connection_ref)"
                 " VALUES ('autotrigger', 'postgres', 'DATABASE_URL') RETURNING id"
             )
-            row = cast("tuple[Any, ...] | None", await cursor.fetchone())
+            row = await cursor.fetchone()
         assert row is not None
         source = cast(UUID, row[0])
 
@@ -227,7 +227,7 @@ async def _exercise_quota_failure() -> None:
                 f" VALUES ('quota-{uuid4().hex[:8]}', 'postgres', 'DATABASE_URL')"
                 " RETURNING id"
             )
-            row = cast("tuple[Any, ...] | None", await cursor.fetchone())
+            row = await cursor.fetchone()
         assert row is not None
         source = cast(UUID, row[0])
 

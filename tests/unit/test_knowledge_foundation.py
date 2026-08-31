@@ -192,11 +192,13 @@ def test_cloud_embeddings_are_blocked_when_cloud_data_approval_is_off() -> None:
 
 
 def test_cloud_embeddings_require_an_api_key() -> None:
+    """The Developer API path still needs a key; only Vertex uses ADC."""
     settings = Settings(
         DATABASE_PROVIDER="postgres",
         LLM_PROVIDER="litellm",
         ALLOW_CLOUD_DATABASE_DATA=True,
         EMBEDDING_PROVIDER="gemini",
+        EMBEDDING_MODEL="gemini/gemini-embedding-2",
         VERTEXAI_PROJECT="test-project",
         # Explicitly absent. Settings reads .env, so a developer with a real
         # key configured would otherwise silently not exercise this path.

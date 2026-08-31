@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -153,6 +153,27 @@ class KnowledgeCandidate:
     reviewed_by: str | None = None
 
 
+class CandidateStore(Protocol):
+    """Storage a generator or reviewer needs. In-memory and Postgres both fit."""
+
+    async def upsert(self, candidate: KnowledgeCandidate) -> KnowledgeCandidate: ...
+
+    async def get(
+        self,
+        data_source_id: UUID,
+        candidate_type: CandidateType,
+        structural_fingerprint: str,
+    ) -> KnowledgeCandidate | None: ...
+
+    async def by_id(
+        self, data_source_id: UUID, candidate_id: UUID
+    ) -> KnowledgeCandidate | None: ...
+
+    async def list(
+        self, data_source_id: UUID, *, status: CandidateStatus | None = None
+    ) -> list[KnowledgeCandidate]: ...
+
+
 class InMemoryCandidateStore:
     """Datasource-scoped candidate storage.
 
@@ -221,7 +242,7 @@ class CandidateGenerator:
         self,
         *,
         llm: LLMGateway,
-        store: InMemoryCandidateStore,
+        store: CandidateStore,
         registry: MetricRegistry,
         model_alias: str = "analytics-general",
     ) -> None:
@@ -313,7 +334,7 @@ class CandidateReview:
     """Approve, edit, or reject. Approval validates before it certifies."""
 
     def __init__(
-        self, *, store: InMemoryCandidateStore, registry: MetricRegistry
+        self, *, store: CandidateStore, registry: MetricRegistry
     ) -> None:
         self._store = store
         self._registry = registry

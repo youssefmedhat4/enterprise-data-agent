@@ -262,8 +262,16 @@ class Settings(BaseSettings):
         default="fake",
         alias="EMBEDDING_PROVIDER",
     )
+    #: Region for Vertex embeddings. Separate from VERTEXAI_LOCATION, which a
+    #: deployment may point at a regional endpoint: Gemini embedding models are
+    #: served from `global`, and a regional value yields a 404 for a model that
+    #: is in fact available.
+    embedding_vertex_location: str = Field(
+        default="global",
+        alias="EMBEDDING_VERTEX_LOCATION",
+    )
     embedding_model: str = Field(
-        default="gemini/gemini-embedding-2",
+        default="vertex_ai/gemini-embedding-2",
         alias="EMBEDDING_MODEL",
     )
     # Gemini Embedding 2 is a Matryoshka model, so a prefix of the 3072-wide
@@ -318,12 +326,16 @@ class Settings(BaseSettings):
         le=1.0,
         alias="QUESTION_CLUSTER_SIMILARITY_THRESHOLD",
     )
+    #: Gemini 3.1 Pro is reached through Vertex AI with Application Default
+    #: Credentials rather than the Gemini Developer API. Vertex bills against
+    #: the project instead of a per-key free tier, and ADC removes a long-lived
+    #: API key from the deployment entirely.
     llm_model_gemini_pro_analytics_general: str = Field(
-        default="gemini/gemini-3.1-pro-preview",
+        default="vertex_ai/gemini-3.1-pro-preview",
         alias="LLM_MODEL_GEMINI_PRO_ANALYTICS_GENERAL",
     )
     llm_model_gemini_pro_sql_reasoner: str = Field(
-        default="gemini/gemini-3.1-pro-preview",
+        default="vertex_ai/gemini-3.1-pro-preview",
         alias="LLM_MODEL_GEMINI_PRO_SQL_REASONER",
     )
     llm_gemini_vertex_ai_location: str = Field(

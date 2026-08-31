@@ -22,6 +22,17 @@ def build_embedding_gateway(settings: Settings) -> EmbeddingGateway:
     # Raises unless ALLOW_CLOUD_DATABASE_DATA approves cloud processing.
     settings.validate_cloud_data_for_models([model])
 
+    if model.startswith("vertex_ai/"):
+        # Vertex authenticates with Application Default Credentials, so there is
+        # no key to require or to store.
+        return GeminiEmbeddingGateway(
+            model=model,
+            dimension=settings.embedding_dimension,
+            timeout_seconds=settings.llm_timeout_seconds,
+            vertex_project=settings.vertex_ai_project,
+            vertex_location=settings.embedding_vertex_location,
+        )
+
     api_key = settings.gemini_api_key
     if api_key is None or not api_key.get_secret_value():
         raise EmbeddingError(
