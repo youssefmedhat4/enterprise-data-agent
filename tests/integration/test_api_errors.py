@@ -56,6 +56,10 @@ class UnsafeLLMGateway(LLMGateway):
         response_model: type[ResponseModelT],
     ) -> ResponseModelT:
         del model_alias, system, user
+        if response_model.__name__ == "MetricSelection":
+            # Governed routing is consulted first now. These gateways exercise
+            # the ad-hoc SQL path, so they decline to govern.
+            return response_model.model_validate({"intent": "adhoc"})
         return response_model.model_validate(
             {
                 "action": "execute",
@@ -110,6 +114,10 @@ class ClarifyingLLMGateway(LLMGateway):
         response_model: type[ResponseModelT],
     ) -> ResponseModelT:
         del model_alias, system, user
+        if response_model.__name__ == "MetricSelection":
+            # Governed routing is consulted first now. These gateways exercise
+            # the ad-hoc SQL path, so they decline to govern.
+            return response_model.model_validate({"intent": "adhoc"})
         assert response_model is SQLGeneration
         return response_model.model_validate(
             {

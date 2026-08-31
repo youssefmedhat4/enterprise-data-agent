@@ -1,7 +1,9 @@
 {
   "roles": {
     "analyst": {
-      "schemas": ["analytics"],
+      "schemas": [
+        "analytics"
+      ],
       "tables": [
         "analytics.departments",
         "analytics.employees",
@@ -13,7 +15,9 @@
         "analytics.project_costs"
       ],
       "denied_columns": {
-        "analytics.employees": ["salary"]
+        "analytics.employees": [
+          "salary"
+        ]
       },
       "metrics": [
         "active_headcount",
@@ -22,25 +26,40 @@
         "project_margin",
         "budget_utilization"
       ],
-      "debug": false
+      "debug": false,
+      "knowledge_review": false
     },
     "hr_analyst": {
-      "schemas": ["analytics"],
+      "schemas": [
+        "analytics"
+      ],
       "tables": [
         "analytics.departments",
         "analytics.employees",
         "analytics.payroll"
       ],
       "denied_columns": {},
-      "metrics": ["active_headcount", "annual_base_payroll", "net_payroll"],
-      "debug": false
+      "metrics": [
+        "active_headcount",
+        "annual_base_payroll",
+        "net_payroll"
+      ],
+      "debug": false,
+      "knowledge_review": false
     },
     "admin_analytics": {
-      "schemas": ["*"],
-      "tables": ["*"],
+      "schemas": [
+        "*"
+      ],
+      "tables": [
+        "*"
+      ],
       "denied_columns": {},
-      "metrics": ["*"],
-      "debug": true
+      "metrics": [
+        "*"
+      ],
+      "debug": true,
+      "knowledge_review": true
     }
   }
 }

@@ -50,6 +50,10 @@ class AuthorizationDecision(BaseModel):
     table_columns: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     allowed_metrics: tuple[str, ...] = ()
     debug_allowed: bool = False
+    #: Whether this identity may review semantics, certify metrics, or
+    #: register datasources. Separate from analytics access: reading data is
+    #: not authority over what the data is defined to mean.
+    knowledge_review_allowed: bool = False
     latency_ms: float = Field(default=0, ge=0)
 
     def scope_summary(self) -> AuthorizedScopeSummary:

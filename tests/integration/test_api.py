@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from langgraph.checkpoint.memory import InMemorySaver
@@ -137,13 +139,47 @@ async def test_raw_sql_is_only_exposed_by_explicit_debug_request() -> None:
     assert "annual_base_salary" in payload["provenance"]["debug"]["semantic_definition_ids"]
 
 
+
+class GoverningFakeLLM(FakeLLMGateway):
+    """A fake that selects a governed metric.
+
+    Governed routing is now decided semantically, so reaching the governed API
+    contract requires a model that actually selects a metric. The base fake
+    deliberately declines, which is what keeps ad-hoc tests deterministic.
+    """
+
+    async def generate_structured(
+        self,
+        *,
+        model_alias: str,
+        system: str,
+        user: str,
+        response_model: type[Any],
+    ) -> Any:
+        if response_model.__name__ == "MetricSelection":
+            return response_model.model_validate(
+                {
+                    "intent": "governed",
+                    "metrics": ["annual_base_payroll"],
+                    "dimensions": ["department"],
+                    "confidence": 0.9,
+                }
+            )
+        return await super().generate_structured(
+            model_alias=model_alias,
+            system=system,
+            user=user,
+            response_model=response_model,
+        )
+
+
 @pytest.mark.asyncio
 async def test_governed_metric_api_response_uses_normalized_contract() -> None:
     database = FakeDatabaseGateway()
     metrics = FakeMetricGateway()
     app.dependency_overrides[get_database_gateway] = lambda: database
     app.dependency_overrides[get_metric_gateway] = lambda: metrics
-    app.dependency_overrides[get_llm_gateway] = FakeLLMGateway
+    app.dependency_overrides[get_llm_gateway] = GoverningFakeLLM
     app.dependency_overrides[get_settings] = _debug_settings
     try:
         async with AsyncClient(

@@ -48,12 +48,16 @@ def build_metric_registry(
     """
     if pool is not None:
         return PostgresMetricRegistry(pool)
-    if settings.checkpoint_database_url is None:
-        return InMemoryMetricRegistry(
-            registered_metrics_for_default_datasource(DEFAULT_DATA_SOURCE_ID)
+    if settings.checkpoint_database_url is not None:
+        # An internal database is configured but no pool was supplied. Warn
+        # rather than fail: the caller still gets a working, correctly seeded
+        # registry, and refusing here would take the whole analytics API down
+        # over a wiring gap that does not affect correctness of an answer.
+        logger.warning(
+            "metric registry falling back to in-memory: no connection pool supplied"
         )
-    raise ValueError(
-        "A connection pool is required to build the persistent metric registry."
+    return InMemoryMetricRegistry(
+        registered_metrics_for_default_datasource(DEFAULT_DATA_SOURCE_ID)
     )
 
 

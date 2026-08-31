@@ -35,12 +35,15 @@ from app.embeddings.gateway import EmbeddingError
 from app.errors import ErrorResponse, normalize_error
 from app.governance.factory import build_governance_gateway
 from app.governance.gateway import GovernanceGateway
+from app.knowledge.candidates import InMemoryCandidateStore
 from app.knowledge.factory import (
     bootstrap_default_datasource,
     build_metric_intent_planner,
     build_metric_registry,
     build_metric_retriever,
 )
+from app.knowledge.guidance import InMemoryGuidanceStore
+from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.retrieval import MetricRetriever
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.factory import build_llm_gateway
@@ -183,6 +186,9 @@ async def get_metric_retriever(
         return None
     _metric_knowledge["registry"] = registry
     _metric_knowledge["retriever"] = retriever
+    _metric_knowledge.setdefault("memory", InMemoryQuestionMemory())
+    _metric_knowledge.setdefault("candidates", InMemoryCandidateStore())
+    _metric_knowledge.setdefault("guidance", InMemoryGuidanceStore())
     return retriever
 
 

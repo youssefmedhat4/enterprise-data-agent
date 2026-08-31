@@ -47,6 +47,14 @@ class FakeLLMGateway(LLMGateway):
             )
         if response_model is AnswerGeneration:
             return response_model.model_validate(self._answer_from_rows(user))
+        if response_model.__name__ == "MetricSelection":
+            # Deterministic planner: decline to govern. The fake exists to make
+            # the ad-hoc SQL path reproducible, and a fake that governed some
+            # questions would silently change which route a test exercises.
+            # Tests that need a governed selection inject their own gateway.
+            return response_model.model_validate(
+                {"intent": "adhoc", "reason": "fake_gateway_does_not_plan_metrics"}
+            )
         raise ValueError(f"Unsupported fake response model: {response_model.__name__}")
 
     def _sql_for_question(self, prompt: str) -> tuple[str, dict[str, Any]]:

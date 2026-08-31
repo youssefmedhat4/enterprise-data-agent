@@ -23,6 +23,7 @@ class _RoleGrant(BaseModel):
     denied_columns: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     metrics: tuple[str, ...]
     debug: bool = False
+    knowledge_review: bool = False
 
 
 class _LocalPolicyData(BaseModel):
@@ -81,6 +82,7 @@ class LocalPolicyAuthorizationGateway(AuthorizationGateway):
             table_columns=table_columns,
             allowed_metrics=allowed_metrics,
             debug_allowed=any(grant.debug for grant in grants),
+            knowledge_review_allowed=any(grant.knowledge_review for grant in grants),
             latency_ms=round((perf_counter() - started) * 1000, 3),
         )
 
