@@ -47,8 +47,8 @@ async def test_analytics_api_returns_rows_answer_chart_and_provenance() -> None:
     assert payload["schema_version"] == "1.1"
     assert payload["status"] == "completed"
     assert payload["thread_id"]
-    assert payload["model_profile"] == "qwen"
-    assert payload["model_display_name"] == "Qwen 3.6 27B"
+    assert payload["model_profile"] == "gemini_pro"
+    assert payload["model_display_name"] == "Gemini 3.1 Pro Preview"
     assert payload["columns"][0] == "department"
     assert payload["chart"]["type"] == "bar"
     assert payload["chart"]["measures"] == ["total_salary"]

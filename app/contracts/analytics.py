@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.authorization.gateway import AuthorizedScopeSummary
-from app.llm.profiles import ModelProfile
+from app.llm.profiles import DEFAULT_MODEL_PROFILE, ModelProfile
 
 type Scalar = str | int | float | bool | None
 
@@ -17,7 +17,7 @@ class AnalyticsRequest(StrictContract):
     question: str = Field(min_length=1)
     thread_id: str | None = Field(default=None, min_length=1)
     include_debug: bool = False
-    model_profile: ModelProfile = "qwen"
+    model_profile: ModelProfile = DEFAULT_MODEL_PROFILE
 
 
 class ClaimEvidence(StrictContract):

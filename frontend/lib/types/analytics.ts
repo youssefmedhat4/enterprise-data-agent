@@ -15,7 +15,7 @@ export type Scalar = string | number | boolean | null;
 /** A result row is keyed by column name. Values are JSON scalars. */
 export type ResultRow = Record<string, Scalar>;
 
-export type ModelProfile = "qwen" | "gemini";
+export type ModelProfile = "gemini_pro" | "gemini";
 
 /** `AnalyticsRequest` — the body is `extra="forbid"`; unknown keys are a 422. */
 export interface AnalyticsRequest {

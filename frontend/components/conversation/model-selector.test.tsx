@@ -10,20 +10,20 @@ import { ModelSelector } from "@/components/conversation/model-selector";
 afterEach(cleanup);
 
 describe("ModelSelector", () => {
-  it("renders Qwen by default and offers both approved profiles", () => {
+  it("renders the default profile and offers both approved profiles and offers both approved profiles", () => {
     render(
       createElement(ModelSelector, {
-        value: "qwen",
+        value: "gemini_pro",
         onValueChange: vi.fn(),
         disabled: false,
       }),
     );
 
-    const trigger = screen.getByRole("button", { name: "Model: Qwen 3.6 27B" });
-    expect(trigger.textContent).toContain("Qwen 3.6 27B");
+    const trigger = screen.getByRole("button", { name: "Model: Gemini 3.1 Pro Preview" });
+    expect(trigger.textContent).toContain("Gemini 3.1 Pro Preview");
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
 
-    expect(screen.getAllByText("Qwen 3.6 27B").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Gemini 3.1 Pro Preview").length).toBeGreaterThan(0);
     expect(screen.getByText("Gemini 2.5 Flash")).toBeTruthy();
   });
 
@@ -33,13 +33,13 @@ describe("ModelSelector", () => {
         onSubmit: vi.fn(),
         onStop: vi.fn(),
         isBusy: true,
-        modelProfile: "qwen",
+        modelProfile: "gemini_pro",
         onModelProfileChange: vi.fn(),
       }),
     );
 
     expect(
-      screen.getByRole("button", { name: "Model: Qwen 3.6 27B" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "Model: Gemini 3.1 Pro Preview" }).hasAttribute("disabled"),
     ).toBe(true);
   });
 

@@ -26,6 +26,7 @@ import { clearTranscript } from "@/lib/threads/transcript";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
 import {
   DEFAULT_MODEL_PROFILE,
+  isModelProfile,
   type ModelProfile,
 } from "@/lib/models/profiles";
 
@@ -60,7 +61,7 @@ export function Workspace() {
   useEffect(() => setThreads(loadThreads()), []);
   useEffect(() => {
     const stored = sessionStorage.getItem(MODEL_PROFILE_STORAGE_KEY);
-    if (stored === "qwen" || stored === "gemini") setModelProfile(stored);
+    if (isModelProfile(stored)) setModelProfile(stored);
   }, []);
 
   const handleModelProfileChange = useCallback((profile: ModelProfile) => {

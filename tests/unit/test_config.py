@@ -1,6 +1,8 @@
 import pytest
 
 from app.config import Settings
+from app.contracts.analytics import AnalyticsRequest
+from app.llm.profiles import DEFAULT_MODEL_PROFILE, SELECTABLE_MODEL_PROFILES
 
 
 def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -296,3 +298,63 @@ def test_vertex_aliases_receive_adc_project_options_without_api_keys() -> None:
             "vertex_location": "global",
         },
     }
+
+
+def test_gemini_pro_profile_uses_the_api_key_path_not_vertex() -> None:
+    """`gemini/` is the Google AI Studio path; the bare id would resolve to Vertex."""
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        GEMINI_API_KEY="test-key-not-real",
+        ALLOW_CLOUD_DATABASE_DATA=True,
+        VERTEXAI_PROJECT="test-project",
+    )
+
+    profile = settings.resolve_model_profile("gemini_pro")
+
+    assert profile.display_name == "Gemini 3.1 Pro Preview"
+    assert profile.physical_models == ["gemini/gemini-3.1-pro-preview"]
+    assert settings.model_provider("gemini/gemini-3.1-pro-preview") == "gemini"
+    # The API-key path must not carry Vertex project/location options.
+    assert profile.model_options_by_alias == {}
+    assert set(profile.api_keys_by_alias) == {"analytics-general", "sql-reasoner"}
+    # Structured output stays on response_format; no model-specific JSON hacks.
+    assert profile.structured_output_modes_by_alias == {}
+
+
+def test_gemini_pro_is_the_default_selectable_profile() -> None:
+    assert DEFAULT_MODEL_PROFILE == "gemini_pro"
+    assert SELECTABLE_MODEL_PROFILES == ("gemini_pro", "gemini")
+    assert "qwen" not in SELECTABLE_MODEL_PROFILES
+    assert AnalyticsRequest(question="q").model_profile == "gemini_pro"
+
+
+def test_gemini_pro_is_blocked_when_cloud_data_approval_is_off() -> None:
+    settings = Settings(
+        DATABASE_PROVIDER="postgres",
+        ALLOW_CLOUD_DATABASE_DATA=False,
+        LLM_PROVIDER="litellm",
+        GEMINI_API_KEY="test-key-not-real",
+        VERTEXAI_PROJECT="test-project",
+    )
+
+    with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA") as excinfo:
+        settings.resolve_model_profile("gemini_pro")
+
+    assert "test-key-not-real" not in str(excinfo.value)
+
+
+def test_gemini_api_key_never_serializes() -> None:
+    settings = Settings(
+        LLM_PROVIDER="litellm",
+        GEMINI_API_KEY="test-key-not-real",
+        ALLOW_CLOUD_DATABASE_DATA=True,
+        VERTEXAI_PROJECT="test-project",
+    )
+
+    dumped = settings.model_dump_json()
+
+    assert "test-key-not-real" not in dumped
+    assert "gemini_api_key" not in dumped
+    # repr/str must not leak it either.
+    assert "test-key-not-real" not in repr(settings)
+    assert "test-key-not-real" not in str(settings.gemini_api_key)

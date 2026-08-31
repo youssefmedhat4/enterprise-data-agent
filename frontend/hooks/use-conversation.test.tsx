@@ -13,13 +13,13 @@ vi.mock("@/lib/api/analytics", () => ({
 
 const postQuery = vi.mocked(postAnalyticsQuery);
 
-function response(profile: "qwen" | "gemini"): AnalyticsResponse {
+function response(profile: "gemini_pro" | "gemini"): AnalyticsResponse {
   return {
     schema_version: "1.1",
     request_id: "request-1",
     thread_id: "thread-1",
     model_profile: profile,
-    model_display_name: profile === "qwen" ? "Qwen 3.6 27B" : "Gemini 2.5 Flash",
+    model_display_name: profile === "gemini_pro" ? "Gemini 3.1 Pro Preview" : "Gemini 2.5 Flash",
     status: "completed",
     answer: "Grounded answer",
     columns: [],
@@ -84,12 +84,12 @@ describe("useConversation model identity", () => {
   it("retries a failed exchange with its original profile", async () => {
     postQuery
       .mockRejectedValueOnce(new Error("temporary"))
-      .mockResolvedValueOnce(response("qwen"));
+      .mockResolvedValueOnce(response("gemini_pro"));
     const { result } = renderHook(() =>
       useConversation({ onThreadEstablished: vi.fn() }),
     );
 
-    await act(() => result.current.ask("Show payroll", "qwen"));
+    await act(() => result.current.ask("Show payroll", "gemini_pro"));
     const exchangeId = result.current.exchanges[0]?.id;
     expect(exchangeId).toBeTruthy();
 
@@ -98,7 +98,7 @@ describe("useConversation model identity", () => {
 
     expect(postQuery).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ model_profile: "qwen" }),
+      expect.objectContaining({ model_profile: "gemini_pro" }),
       expect.any(Object),
     );
   });

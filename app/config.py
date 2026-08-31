@@ -258,6 +258,14 @@ class Settings(BaseSettings):
         default="vertex_ai/gemini-2.5-flash",
         alias="LLM_MODEL_GEMINI_SQL_REASONER",
     )
+    llm_model_gemini_pro_analytics_general: str = Field(
+        default="gemini/gemini-3.1-pro-preview",
+        alias="LLM_MODEL_GEMINI_PRO_ANALYTICS_GENERAL",
+    )
+    llm_model_gemini_pro_sql_reasoner: str = Field(
+        default="gemini/gemini-3.1-pro-preview",
+        alias="LLM_MODEL_GEMINI_PRO_SQL_REASONER",
+    )
     llm_gemini_vertex_ai_location: str = Field(
         default="global",
         alias="LLM_GEMINI_VERTEXAI_LOCATION",
@@ -475,6 +483,12 @@ class Settings(BaseSettings):
                 ),
             }
             vertex_location = self.vertex_ai_location
+        elif profile == "gemini_pro":
+            aliases = {
+                "analytics-general": self.llm_model_gemini_pro_analytics_general,
+                "sql-reasoner": self.llm_model_gemini_pro_sql_reasoner,
+            }
+            vertex_location = self.llm_gemini_vertex_ai_location
         else:
             aliases = {
                 "analytics-general": self.llm_model_gemini_analytics_general,
