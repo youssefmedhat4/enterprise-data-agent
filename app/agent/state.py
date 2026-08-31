@@ -1,7 +1,7 @@
 from operator import add
 from typing import Annotated, Any, TypedDict
 
-from app.agent.context import AnalysisPlan, AnalyticalContext, ConversationTurn
+from app.agent.context import AnalysisPlan, AnalyticalContext, ConversationTurn, PendingEntityChoice
 from app.authentication.gateway import UserIdentity
 from app.authorization.gateway import AuthorizationDecision, AuthorizedScopeSummary
 from app.contracts.analytics import (
@@ -51,6 +51,8 @@ class AgentState(TypedDict, total=False):
     #: This is data context for the current request, never an authorization
     #: grant and never a model-generated value.
     resolved_entity_context: list[dict[str, str]]
+    pinned_entity_context: list[dict[str, str]]
+    pending_entity_choice: PendingEntityChoice | None
     sql_generation_provider: str
     model_action: str
     generated_sql: str | None

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -10,7 +11,13 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from app.agent.charts import ChartValidator
-from app.agent.context import AnalysisPlan, AnalyticalContext, ConversationTurn
+from app.agent.context import (
+    AnalysisPlan,
+    AnalyticalContext,
+    ConversationTurn,
+    EntityChoice,
+    PendingEntityChoice,
+)
 from app.agent.grounding import GroundingValidator
 from app.agent.provenance import build_internal_provenance
 from app.agent.state import AgentState
@@ -70,7 +77,7 @@ from app.security.sql_validation import (
     SQLValidationError,
     SQLValidator,
 )
-from app.semantic.entities import tables_for_question
+from app.semantic.entities import normalize_value, tables_for_question
 from app.semantic.entity_values import EntityValueGateway
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
@@ -281,12 +288,15 @@ def _observed_node(name: str, node: Node, traces: TraceService) -> Node:
 
 def _prepare_request(sql_generation_provider: Literal["llm", "wren"]) -> Node:
     async def node(state: AgentState) -> AgentState:
+        resumed, pinned = _resume_clarified_request(state)
         return {
-            "resolved_question": state["question"],
+            "resolved_question": resumed,
+            "pinned_entity_context": pinned,
             "generated_sql": None,
             "validated_sql": None,
             "needs_clarification": False,
             "clarification_question": None,
+            "pending_entity_choice": None,
             "block_reason": None,
             "model_action": "execute",
             "query_result": [],
@@ -312,6 +322,57 @@ def _prepare_request(sql_generation_provider: Literal["llm", "wren"]) -> Node:
         }
 
     return node
+
+
+def _resume_clarified_request(
+    state: AgentState,
+) -> tuple[str, list[dict[str, str]]]:
+    """Continue the request a clarification interrupted, when this is a reply.
+
+    A clarification records the options it offered. A turn that names exactly
+    one of them is an answer to that question, so the original request resumes
+    with that option pinned; a turn that names none is a new request and
+    inherits nothing. Matching against recorded options rather than guessing
+    from sentence shape keeps this independent of how the reply is phrased.
+    """
+    question = state["question"]
+    context = state.get("analytical_context")
+    if context is None or context.clarification_state != "required":
+        return question, []
+    pending = context.pending_entity_choice
+    if pending is None or not pending.choices:
+        return question, []
+
+    asked = normalize_value(question)
+    selected = [
+        choice
+        for choice in pending.choices
+        if _names_value(asked, choice.canonical_key)
+    ]
+    if len(selected) != 1:
+        # Naming none of them is a new question; naming several is still
+        # ambiguous, and guessing between them is exactly what was avoided.
+        return question, []
+    choice = selected[0]
+    return pending.original_question, [
+        {
+            "entity": pending.entity_name,
+            "canonical_column": choice.canonical_column,
+            "canonical_key": choice.canonical_key,
+            "display_column": choice.display_column,
+            "display_value": choice.display_value,
+        }
+    ]
+
+
+def _names_value(normalized_question: str, value: str) -> bool:
+    normalized = normalize_value(value)
+    if not normalized:
+        return False
+    return (
+        re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", normalized_question)
+        is not None
+    )
 
 
 def _authorize_request(
@@ -542,6 +603,11 @@ def _resolve_question_entities(
     """Resolve explicit entity values after OPA but before routing or LLM use."""
 
     async def node(state: AgentState) -> AgentState:
+        pinned = state.get("pinned_entity_context", [])
+        if pinned:
+            # The user already chose, in reply to a clarification this graph
+            # asked. Re-resolving would ask the same question again.
+            return {"resolved_entity_context": list(pinned)}
         if entity_values is None or semantic_model is None:
             return {}
         resolution = await entity_values.resolve(
@@ -569,6 +635,22 @@ def _resolve_question_entities(
                 "model_action": "clarify",
                 "needs_clarification": True,
                 "clarification_question": f"Which {label} do you mean: {choices}?",
+                # Recorded so the reply resumes this request instead of
+                # arriving as an unrelated question of its own.
+                "pending_entity_choice": PendingEntityChoice(
+                    entity_name=label,
+                    original_question=state["question"],
+                    choices=[
+                        EntityChoice(
+                            canonical_key=candidate.canonical_key or "",
+                            display_value=candidate.display_value or candidate.value,
+                            canonical_column=candidate.canonical_column or "",
+                            display_column=candidate.qualified_column,
+                        )
+                        for candidate in candidates
+                        if candidate.canonical_key
+                    ],
+                ),
             }
 
         candidate = resolution.resolved
@@ -1466,6 +1548,7 @@ def _record_context(
                 else None
             ),
             metric_query=state.get("metric_query"),
+            pending_entity_choice=state.get("pending_entity_choice"),
         )
         turn = ConversationTurn(
             request_id=state["request_id"],
