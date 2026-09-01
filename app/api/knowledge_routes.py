@@ -37,6 +37,12 @@ from app.security.sql_validation import SQLValidator
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
+#: Candidate types whose approval writes into a normalized store rather than
+#: into the metric registry or the guidance store.
+_LEARNED_TYPES = frozenset(
+    {"FILTER", "SYNONYM", "ENTITY_ALIAS", "JOIN_RULE", "DESCRIPTION_IMPROVEMENT"}
+)
+
 
 class StrictPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -89,6 +95,13 @@ class ClusterView(StrictPayload):
     status: str
 
 
+class CandidateDetail(StrictPayload):
+    """One labelled fact about a proposal, for the review screen."""
+
+    label: str
+    value: str
+
+
 class CandidateView(StrictPayload):
     id: UUID
     candidate_type: str
@@ -101,6 +114,9 @@ class CandidateView(StrictPayload):
     grain: str | None = None
     dependencies: list[str] = Field(default_factory=list)
     rejection_reason: str | None = None
+    #: Type-specific detail a reviewer needs in order to decide. A reviewer
+    #: shown only a name is being asked to approve something they cannot see.
+    detail: list[CandidateDetail] = Field(default_factory=list)
 
 
 class CertifiedMetricView(StrictPayload):
@@ -674,7 +690,12 @@ async def review_candidate(
     if store is None or registry is None:
         raise HTTPException(status_code=404, detail="No candidate to review.")
 
-    review = CandidateReview(store=store, registry=registry, guidance=knowledge.guidance)
+    review = CandidateReview(
+        store=store,
+        registry=registry,
+        guidance=knowledge.guidance,
+        learned=knowledge.learned,
+    )
     try:
         if decision.action == "reject":
             candidate = await review.reject(
@@ -690,6 +711,20 @@ async def review_candidate(
         if candidate.candidate_type.value == "BUSINESS_RULE":
             await review.approve_business_rule(
                 data_source_id, candidate_id, reviewed_by=identity.subject_id
+            )
+        elif candidate.candidate_type.value in _LEARNED_TYPES:
+            # Filters, synonyms, aliases, join rules and descriptions all name
+            # business concepts, so each is checked against what this datasource
+            # has actually confirmed before it becomes knowledge.
+            semantics = knowledge.semantics
+            model = (
+                await semantics.load(data_source_id) if semantics is not None else None
+            )
+            await review.approve_learned(
+                data_source_id,
+                candidate_id,
+                semantic_model=model,
+                reviewed_by=identity.subject_id,
             )
         elif candidate.candidate_type.value == "QUERY_EXAMPLE":
             # Approving an example is a claim it still works, so it is checked
@@ -824,6 +859,64 @@ async def author_business_instruction(
     return _instruction_view(stored)
 
 
+def _candidate_detail(proposal: Any) -> list[CandidateDetail]:
+    """What a reviewer has to see to make a decision about this kind.
+
+    A filter is meaningless without its predicate, a join rule without both
+    sides, a description change without the wording it replaces. Approving on a
+    name alone is not review.
+    """
+    from app.knowledge.candidates import BusinessRuleProposal, QueryExampleProposal
+    from app.knowledge.learned import (
+        DescriptionProposal,
+        EntityAliasProposal,
+        FilterProposal,
+        JoinRuleProposal,
+        SynonymProposal,
+        describe_predicate,
+    )
+
+    if isinstance(proposal, FilterProposal):
+        return [
+            CandidateDetail(label="Population", value=describe_predicate(proposal.predicate))
+        ]
+    if isinstance(proposal, SynonymProposal):
+        return [
+            CandidateDetail(
+                label="Points at", value=f"{proposal.target_kind}: {proposal.target}"
+            ),
+            CandidateDetail(label="Phrases", value=", ".join(proposal.phrases)),
+        ]
+    if isinstance(proposal, EntityAliasProposal):
+        detail = [
+            CandidateDetail(label="Entity", value=proposal.entity_name),
+            CandidateDetail(label="Alias", value=proposal.alias),
+        ]
+        if proposal.canonical_key:
+            detail.append(
+                CandidateDetail(label="Canonical key", value=proposal.canonical_key)
+            )
+        return detail
+    if isinstance(proposal, JoinRuleProposal):
+        return [
+            CandidateDetail(label="Left", value=proposal.left_concept),
+            CandidateDetail(label="Right", value=proposal.right_concept),
+            CandidateDetail(label="Cardinality", value=proposal.cardinality),
+        ]
+    if isinstance(proposal, DescriptionProposal):
+        return [
+            CandidateDetail(
+                label="Subject", value=f"{proposal.subject_kind}: {proposal.subject}"
+            ),
+            CandidateDetail(label="Proposed description", value=proposal.description),
+        ]
+    if isinstance(proposal, QueryExampleProposal):
+        return [CandidateDetail(label="Question", value=proposal.question)]
+    if isinstance(proposal, BusinessRuleProposal):
+        return [CandidateDetail(label="Instruction", value=proposal.instruction)]
+    return []
+
+
 def _instruction_view(instruction: Any) -> BusinessInstructionView:
     return BusinessInstructionView(
         id=instruction.id,
@@ -884,6 +977,7 @@ def _candidate_view(candidate: Any) -> CandidateView:
         dependencies = sorted(referenced_metrics(proposal.expression))
         grain = proposal.grain
     return CandidateView(
+        detail=_candidate_detail(proposal),
         id=candidate.id,
         candidate_type=candidate.candidate_type.value,
         display_name=candidate.display_name,

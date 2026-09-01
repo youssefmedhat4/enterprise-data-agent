@@ -36,12 +36,17 @@ from app.knowledge.evidence import (
 from app.knowledge.execution import DataSourceRuntimeProvider
 from app.knowledge.guidance import InMemoryGuidanceStore
 from app.knowledge.jobs import PostgresGenerationJobQueue
+from app.knowledge.learned import (
+    InMemoryLearnedKnowledgeStore,
+    LearnedKnowledgeStore,
+)
 from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricRegistry
 from app.knowledge.postgres_candidates import PostgresCandidateStore
 from app.knowledge.postgres_evaluation import PostgresEvaluationStore
 from app.knowledge.postgres_evidence import PostgresExecutionEvidenceStore
 from app.knowledge.postgres_guidance import PostgresGuidanceStore
+from app.knowledge.postgres_learned import PostgresLearnedKnowledgeStore
 from app.knowledge.postgres_memory import PostgresQuestionMemory
 from app.knowledge.postgres_metrics import PostgresMetricRegistry
 from app.knowledge.postgres_quality import PostgresQualityStore
@@ -95,6 +100,9 @@ class KnowledgeRuntime:
     evaluations: EvaluationStore | None
     #: Reviewed assertions about whether the data itself is trustworthy.
     quality: QualityStore | None
+    #: Where approved filters, synonyms, aliases, join rules and description
+    #: revisions live once a reviewer has promoted them.
+    learned: LearnedKnowledgeStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -175,6 +183,7 @@ async def build_knowledge_runtime(
         evidence=PostgresExecutionEvidenceStore(pool),
         evaluations=PostgresEvaluationStore(pool),
         quality=PostgresQualityStore(pool),
+        learned=PostgresLearnedKnowledgeStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -203,6 +212,7 @@ async def _in_memory_runtime(
         evidence=InMemoryExecutionEvidenceStore(),
         evaluations=InMemoryEvaluationStore(),
         quality=InMemoryQualityStore(),
+        learned=InMemoryLearnedKnowledgeStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,

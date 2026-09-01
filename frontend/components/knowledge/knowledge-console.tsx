@@ -604,6 +604,12 @@ export function KnowledgeConsole({
                     value={candidate.dependencies.join(", ")}
                   />
                 ) : null}
+                {/* What this kind of proposal actually says. A reviewer shown
+                    only a name is being asked to approve something they cannot
+                    see. */}
+                {candidate.detail.map((item) => (
+                  <Row key={item.label} label={item.label} value={item.value} />
+                ))}
                 {candidate.rejectionReason !== null ? (
                   <Row label="Rejected because" value={candidate.rejectionReason} />
                 ) : null}

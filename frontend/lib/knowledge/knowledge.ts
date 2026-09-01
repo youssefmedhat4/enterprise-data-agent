@@ -34,6 +34,8 @@ export interface KnowledgeCandidate {
   grain: string | null;
   dependencies: string[];
   rejectionReason: string | null;
+  /** Type-specific facts a reviewer needs in order to decide. */
+  detail: { label: string; value: string }[];
 }
 
 export interface CertifiedMetric {
@@ -129,6 +131,12 @@ export function fetchCandidates(dataSourceId: string): Promise<KnowledgeCandidat
     grain: nullable(raw.grain),
     dependencies: strList(raw.dependencies),
     rejectionReason: nullable(raw.rejection_reason),
+    detail: Array.isArray(raw.detail)
+      ? raw.detail.map((entry) => {
+          const row = entry as Record<string, unknown>;
+          return { label: str(row.label), value: str(row.value) };
+        })
+      : [],
   }));
 }
 
