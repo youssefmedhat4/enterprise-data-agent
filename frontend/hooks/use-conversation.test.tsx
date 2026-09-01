@@ -49,6 +49,7 @@ function response(profile: "gemini_pro" | "gemini"): AnalyticsResponse {
     clarification_question: null,
     clarification_choices: [],
     data_quality: [],
+    trace: null,
     warnings: [],
     execution: {
       query_id: null,

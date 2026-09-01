@@ -13,6 +13,7 @@ from app.agent.checkpointing import (
     build_conversation_checkpoint_store,
 )
 from app.agent.graph import build_graph
+from app.agent.lineage import lineage_from_sql
 from app.authentication.factory import build_authentication_gateway
 from app.authentication.gateway import (
     AuthenticationCredentials,
@@ -27,10 +28,13 @@ from app.contracts.analytics import (
     AnalyticalResult,
     AnalyticsRequest,
     AnalyticsResponse,
+    AnswerTraceView,
     ClarificationChoice,
     DataQualityWarning,
     HealthResponse,
     InternalProvenance,
+    LineageMetricNode,
+    LineageTable,
 )
 from app.data.factory import build_database_gateway
 from app.data.gateway import DatabaseGateway, DatabaseUnavailableError
@@ -362,6 +366,93 @@ async def _data_quality_for(
     ]
 
 
+async def _answer_trace(
+    *,
+    knowledge: KnowledgeRuntime,
+    data_source_id: UUID,
+    semantic_model: Any,
+    provenance: InternalProvenance,
+    public_provenance: Any,
+    result: Mapping[str, Any],
+    model_profile: str,
+    quality: list[DataQualityWarning],
+    include_sql: bool,
+) -> AnswerTraceView:
+    """Assemble what can be said about how this answer was produced.
+
+    Every field is read off something already recorded: the validated statement,
+    the confirmed semantic model, a metric's registered dependencies. Nothing is
+    asked of a model, because a model recounting its own reasoning produces a
+    plausible story and a plausible story about lineage cannot be falsified.
+
+    The statement itself appears only under the same policy that gates debug
+    provenance.
+    """
+    lineage = lineage_from_sql(
+        provenance.validated_sql,
+        semantic_model=semantic_model,
+        fallback_tables=tuple(provenance.tables),
+    )
+    metrics = tuple(key for key in (provenance.metric_id,) if key)
+    metric_lineage: list[LineageMetricNode] = []
+    for key in metrics:
+        try:
+            registered = await knowledge.registry.get(data_source_id, key)
+        except Exception:  # pragma: no cover - defensive
+            registered = None
+        if registered is not None and registered.dependencies:
+            metric_lineage.append(
+                LineageMetricNode(
+                    label=key,
+                    kind="derived",
+                    children=[
+                        LineageMetricNode(label=dependency, kind="metric")
+                        for dependency in registered.dependencies
+                    ],
+                )
+            )
+        else:
+            metric_lineage.append(LineageMetricNode(label=key, kind="metric"))
+
+    return AnswerTraceView(
+        data_source=public_provenance.source,
+        route=provenance.route,
+        execution_source=provenance.execution_source,
+        semantic_entities=sorted(
+            {table.entity for table in lineage.tables if table.entity}
+        ),
+        metrics=list(metrics),
+        business_instructions=list(provenance.applied_instruction_titles),
+        query_examples=list(provenance.applied_example_ids),
+        resolved_entities=[
+            f"{entity.get('entity', '')}: {entity.get('display_value', '')}"
+            f" ({entity.get('canonical_key', '')})"
+            for entity in result.get("resolved_entity_context", [])
+        ],
+        tables=[
+            LineageTable(
+                table=item.table, columns=list(item.columns), entity=item.entity
+            )
+            for item in lineage.tables
+        ],
+        metric_lineage=metric_lineage,
+        column_level=lineage.column_level,
+        lineage_note=lineage.note,
+        validation_status=provenance.final_validation_status,
+        grounded=bool(result.get("claims")),
+        data_quality=quality,
+        model_profile=model_profile,
+        total_latency_ms=round(
+            provenance.routing_latency_ms
+            + provenance.metric_planning_latency_ms
+            + provenance.metric_execution_latency_ms
+            + provenance.repair_latency_ms,
+            1,
+        ),
+        generated_sql=provenance.validated_sql if include_sql else None,
+    )
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -578,6 +669,9 @@ async def query_analytics(
         and decision.debug_allowed
     )
     public_provenance = internal_provenance.public_view(include_debug=include_debug)
+    quality_warnings = await _data_quality_for(
+        knowledge, active_data_source_id, internal_provenance.tables
+    )
     execution = result["execution_metadata"]
     return AnalyticsResponse(
         request_id=request_id,
@@ -600,8 +694,17 @@ async def query_analytics(
         clarification_required=result.get("needs_clarification", False),
         clarification_question=result.get("clarification_question"),
         clarification_choices=_clarification_choices(result),
-        data_quality=await _data_quality_for(
-            knowledge, active_data_source_id, public_provenance.tables
+        data_quality=quality_warnings,
+        trace=await _answer_trace(
+            knowledge=knowledge,
+            data_source_id=active_data_source_id,
+            semantic_model=semantic_model,
+            provenance=internal_provenance,
+            public_provenance=public_provenance,
+            result=result,
+            model_profile=selected_model_profile.display_name,
+            quality=quality_warnings,
+            include_sql=include_debug,
         ),
         warnings=result.get("warnings", []),
         execution=execution,

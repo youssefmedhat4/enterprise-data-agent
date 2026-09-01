@@ -343,6 +343,50 @@ class DataQualityWarning(StrictContract):
     message: str
 
 
+class LineageTable(StrictContract):
+    table: str
+    columns: list[str] = Field(default_factory=list)
+    entity: str | None = None
+
+
+class LineageMetricNode(StrictContract):
+    label: str
+    kind: str
+    children: list["LineageMetricNode"] = Field(default_factory=list)
+
+
+class AnswerTraceView(StrictContract):
+    """How one answer was produced, in terms a reader can check.
+
+    Assembled from what the system recorded -- the validated statement, the
+    confirmed semantic model, the metric's own expression tree -- never from a
+    model describing its own reasoning. A plausible story about lineage is worse
+    than none: it cannot be falsified, and people act on it.
+
+    Carries no connection detail of any kind. `generated_sql` appears only when
+    the same policy that gates debug provenance allows it.
+    """
+
+    data_source: str
+    route: str
+    execution_source: str
+    semantic_entities: list[str] = Field(default_factory=list)
+    metrics: list[str] = Field(default_factory=list)
+    business_instructions: list[str] = Field(default_factory=list)
+    query_examples: list[str] = Field(default_factory=list)
+    resolved_entities: list[str] = Field(default_factory=list)
+    tables: list[LineageTable] = Field(default_factory=list)
+    metric_lineage: list[LineageMetricNode] = Field(default_factory=list)
+    column_level: bool = False
+    lineage_note: str = ""
+    validation_status: str = "not_applicable"
+    grounded: bool = False
+    data_quality: list[DataQualityWarning] = Field(default_factory=list)
+    model_profile: str = ""
+    total_latency_ms: float = 0
+    generated_sql: str | None = None
+
+
 class AnalyticsResponse(StrictContract):
     # 1.1 widened `chart` from the original four fixed types to the AI-selected
     # visualization contract above. See ADR 0012.
@@ -371,6 +415,9 @@ class AnalyticsResponse(StrictContract):
     #: Only about tables this answer actually read. Attaching every warning
     #: to every answer teaches people to ignore all of them.
     data_quality: list[DataQualityWarning] = Field(default_factory=list)
+    #: How this answer was produced. Derived from what was recorded, never from
+    #: a model describing its own reasoning.
+    trace: AnswerTraceView | None = None
     warnings: list[str] = Field(default_factory=list)
     execution: ExecutionMetadata
 

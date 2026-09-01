@@ -39,6 +39,7 @@ function clarifying(
       "Which Organizational Unit do you mean: OU2100 | Operations; OU2200 | Operations?",
     clarification_choices: choices,
     data_quality: [],
+    trace: null,
     warnings: [],
     execution: {
       query_id: null,

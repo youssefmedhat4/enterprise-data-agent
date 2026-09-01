@@ -185,8 +185,50 @@ export interface AnalyticsResponse {
   clarification_question: string | null;
   clarification_choices: ClarificationChoice[];
   data_quality: DataQualityWarning[];
+  trace: AnswerTrace | null;
   warnings: string[];
   execution: ExecutionMetadata;
+}
+
+export interface LineageTable {
+  table: string;
+  columns: string[];
+  entity: string | null;
+}
+
+export interface LineageMetricNode {
+  label: string;
+  kind: string;
+  children: LineageMetricNode[];
+}
+
+/**
+ * How one answer was produced.
+ *
+ * Assembled by the backend from what it recorded — the validated statement, the
+ * confirmed semantic model, the metric's registered dependencies — never from a
+ * model describing its own reasoning. `generated_sql` is present only where
+ * policy allows it.
+ */
+export interface AnswerTrace {
+  data_source: string;
+  route: string;
+  execution_source: string;
+  semantic_entities: string[];
+  metrics: string[];
+  business_instructions: string[];
+  query_examples: string[];
+  resolved_entities: string[];
+  tables: LineageTable[];
+  metric_lineage: LineageMetricNode[];
+  column_level: boolean;
+  lineage_note: string;
+  validation_status: string;
+  grounded: boolean;
+  data_quality: DataQualityWarning[];
+  model_profile: string;
+  total_latency_ms: number;
+  generated_sql: string | null;
 }
 
 /**

@@ -5,7 +5,7 @@ import { Check, Copy, HelpCircle, ShieldAlert, TriangleAlert } from "lucide-reac
 import { useMemo, useState } from "react";
 
 import { EvidencePanel } from "@/components/analytics/evidence-panel";
-import { AddToEvaluation } from "@/components/knowledge/add-to-evaluation";
+import { AnswerTrace } from "@/components/analytics/answer-trace";
 import { KpiRow } from "@/components/analytics/kpi-row";
 import { ProvenanceStrip } from "@/components/provenance/provenance-strip";
 import { formatGroundedNumbers } from "@/lib/format/values";
@@ -143,11 +143,6 @@ export function AnalysisEntry({
         </button>
       </motion.div>
 
-      {/* A reviewer can turn this answer into a benchmark. Nothing is recorded
-          until they confirm the expected value. */}
-      <motion.div variants={revealChild}>
-        <AddToEvaluation question={question} response={response} />
-      </motion.div>
 
       {/* Evidence. */}
       {isEmpty ? (
@@ -187,6 +182,12 @@ export function AnalysisEntry({
           ))}
         </motion.ul>
       ) : null}
+
+      {/* How this answer was produced, folded away until someone asks. The
+          reviewer's route into the evaluation set lives inside it. */}
+      <motion.div variants={revealChild}>
+        <AnswerTrace question={question} response={response} />
+      </motion.div>
 
       {response.warnings.length > 0 ? (
         <motion.ul variants={revealChild} className="space-y-1.5">

@@ -376,3 +376,57 @@ async def test_a_stale_table_warns_only_the_answers_that_read_it(
     )
     assert warnings[0]["status"] == "STALE"
     assert "3.0 days" in warnings[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_the_answer_trace_is_derived_and_carries_no_connection_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Everything in the trace is read off what was recorded.
+
+    And nothing in it names a host, a role, a DSN or a connection reference --
+    the trace is the part of the system a curious user reads most closely.
+    """
+    monkeypatch.setenv("ALLOWED_CONNECTION_REFS", "EVAL_URL")
+    monkeypatch.setenv("EVAL_URL", "postgresql://secret:hunter2@db.internal/evaluated")
+    settings = Settings()
+    database = _Gateway()
+    runtime = await _in_memory_runtime(settings, SOURCE)
+    runtime.execution = DataSourceRuntimeProvider(
+        settings,
+        registry=_Registry(),
+        gateway_factory=lambda _settings, **_kwargs: database,
+    )
+    app.dependency_overrides[get_knowledge_runtime] = lambda: runtime
+    app.dependency_overrides[get_database_gateway] = lambda: FakeDatabaseGateway()
+    app.dependency_overrides[get_llm_gateway] = lambda: _LLM()
+    app.dependency_overrides[get_authorization_gateway] = lambda: _AllowAll()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/analytics/query",
+                json={
+                    "question": "How many active employees do we have?",
+                    "data_source_id": str(SOURCE),
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+        await runtime.close()
+
+    assert response.status_code == 200, response.text
+    trace = response.json()["trace"]
+    assert trace is not None
+    assert trace["data_source"] == "postgres:evaluated"
+    assert trace["route"] == "adhoc_analytics"
+    assert trace["grounded"] is True
+    # Read out of the statement that actually ran.
+    assert [table["table"] for table in trace["tables"]] == ["erp.emp_mst"]
+    assert trace["tables"][0]["columns"] == ["emp_no", "stat_cd"]
+    assert trace["column_level"] is True
+
+    body = response.text
+    for secret in ("hunter2", "db.internal", "EVAL_URL", "postgresql://"):
+        assert secret not in body, f"the response carried {secret!r}"
