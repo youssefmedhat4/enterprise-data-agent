@@ -5,6 +5,7 @@ import { Check, Copy, HelpCircle, ShieldAlert, TriangleAlert } from "lucide-reac
 import { useMemo, useState } from "react";
 
 import { EvidencePanel } from "@/components/analytics/evidence-panel";
+import { AddToEvaluation } from "@/components/knowledge/add-to-evaluation";
 import { KpiRow } from "@/components/analytics/kpi-row";
 import { ProvenanceStrip } from "@/components/provenance/provenance-strip";
 import { formatGroundedNumbers } from "@/lib/format/values";
@@ -22,6 +23,7 @@ import type { AnalyticsResponse } from "@/lib/types/analytics";
  * changing, and anything ungrounded is left byte-identical.
  */
 interface AnalysisEntryProps {
+  question: string;
   response: AnalyticsResponse;
   onOpenDetails: (response: AnalyticsResponse) => void;
   onAsk: (question: string) => void;
@@ -29,6 +31,7 @@ interface AnalysisEntryProps {
 }
 
 export function AnalysisEntry({
+  question,
   response,
   onOpenDetails,
   onAsk,
@@ -138,6 +141,12 @@ export function AnalysisEntry({
           )}
           {copied ? "Copied" : "Copy answer"}
         </button>
+      </motion.div>
+
+      {/* A reviewer can turn this answer into a benchmark. Nothing is recorded
+          until they confirm the expected value. */}
+      <motion.div variants={revealChild}>
+        <AddToEvaluation question={question} response={response} />
       </motion.div>
 
       {/* Evidence. */}

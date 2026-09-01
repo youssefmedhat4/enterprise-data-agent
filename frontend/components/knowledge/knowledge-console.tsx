@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 
+import { EvaluationsPanel } from "@/components/knowledge/evaluations-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -253,6 +254,7 @@ export function KnowledgeConsole({
           <TabsTrigger value="candidates">Candidates</TabsTrigger>
           <TabsTrigger value="metrics">Certified metrics</TabsTrigger>
           <TabsTrigger value="examples">Approved examples</TabsTrigger>
+          <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
         </TabsList>
 
         {/* --------------------------------------------------- data sources */}
@@ -697,6 +699,11 @@ export function KnowledgeConsole({
                   beyond what listing an example requires. */}
             </article>
           ))}
+        </TabsContent>
+
+        {/* ---------------------------------------------------- evaluations */}
+        <TabsContent value="evaluations" className="mt-4">
+          <EvaluationsPanel dataSourceId={dataSourceId} />
         </TabsContent>
       </Tabs>
     </section>

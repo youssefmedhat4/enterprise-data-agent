@@ -87,6 +87,7 @@ export function Ledger({
 
           {exchange.state === "answered" && exchange.response !== undefined ? (
             <AnalysisEntry
+              question={exchange.question}
               response={exchange.response}
               onOpenDetails={onOpenDetails}
               onAsk={onAsk}

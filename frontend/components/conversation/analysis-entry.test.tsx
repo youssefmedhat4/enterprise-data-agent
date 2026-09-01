@@ -59,6 +59,7 @@ describe("AnalysisEntry clarification", () => {
     const onAsk = vi.fn();
     render(
       <AnalysisEntry
+        question="Show payroll for Operations."
         response={clarifying(OPERATIONS)}
         onOpenDetails={vi.fn()}
         onAsk={onAsk}
@@ -77,6 +78,7 @@ describe("AnalysisEntry clarification", () => {
   it("does not repeat the options inside the sentence when it shows them", () => {
     render(
       <AnalysisEntry
+        question="Show payroll for Operations."
         response={clarifying(OPERATIONS)}
         onOpenDetails={vi.fn()}
         onAsk={vi.fn()}
@@ -90,6 +92,7 @@ describe("AnalysisEntry clarification", () => {
   it("names no table or column", () => {
     const { container } = render(
       <AnalysisEntry
+        question="Show payroll for Operations."
         response={clarifying(OPERATIONS)}
         onOpenDetails={vi.fn()}
         onAsk={vi.fn()}
@@ -104,6 +107,7 @@ describe("AnalysisEntry clarification", () => {
   it("falls back to the full question when there are no options to show", () => {
     render(
       <AnalysisEntry
+        question="Show payroll for Operations."
         response={clarifying([])}
         onOpenDetails={vi.fn()}
         onAsk={vi.fn()}
@@ -120,6 +124,7 @@ describe("AnalysisEntry clarification", () => {
   it("cannot be answered twice while a request is in flight", () => {
     render(
       <AnalysisEntry
+        question="Show payroll for Operations."
         response={clarifying(OPERATIONS)}
         onOpenDetails={vi.fn()}
         onAsk={vi.fn()}

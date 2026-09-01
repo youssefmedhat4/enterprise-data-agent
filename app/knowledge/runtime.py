@@ -25,6 +25,10 @@ from app.embeddings.factory import build_embedding_gateway
 from app.knowledge.candidates import InMemoryCandidateStore
 from app.knowledge.database import KnowledgeDatabase, KnowledgeDatabaseError
 from app.knowledge.datasources import PostgresDataSourceRegistry
+from app.knowledge.evaluation import (
+    EvaluationStore,
+    InMemoryEvaluationStore,
+)
 from app.knowledge.evidence import (
     ExecutionEvidenceStore,
     InMemoryExecutionEvidenceStore,
@@ -35,6 +39,7 @@ from app.knowledge.jobs import PostgresGenerationJobQueue
 from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricRegistry
 from app.knowledge.postgres_candidates import PostgresCandidateStore
+from app.knowledge.postgres_evaluation import PostgresEvaluationStore
 from app.knowledge.postgres_evidence import PostgresExecutionEvidenceStore
 from app.knowledge.postgres_guidance import PostgresGuidanceStore
 from app.knowledge.postgres_memory import PostgresQuestionMemory
@@ -82,6 +87,10 @@ class KnowledgeRuntime:
     #: be promoted from. Deliberately separate from `memory`, which stays free
     #: of SQL.
     evidence: ExecutionEvidenceStore | None
+    #: Known-answer questions and their run history. None where knowledge is
+    #: in-memory only: a benchmark that vanishes on restart cannot show a
+    #: regression, which is the only thing it is for.
+    evaluations: EvaluationStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -160,6 +169,7 @@ async def build_knowledge_runtime(
         semantics=PostgresSemanticRepository(pool),
         jobs=PostgresGenerationJobQueue(pool),
         evidence=PostgresExecutionEvidenceStore(pool),
+        evaluations=PostgresEvaluationStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -186,6 +196,7 @@ async def _in_memory_runtime(
         semantics=None,
         jobs=None,
         evidence=InMemoryExecutionEvidenceStore(),
+        evaluations=InMemoryEvaluationStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,
