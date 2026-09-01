@@ -22,6 +22,10 @@ class AnalyticsRequest(StrictContract):
     #: Which registered database to answer from. Omitted means the default
     #: datasource, so existing callers and the seeded demo keep working.
     data_source_id: UUID | None = None
+    #: The instant relative periods are resolved against. Normally absent,
+    #: meaning now; an evaluation supplies a fixed anchor so "year to date"
+    #: keeps meaning the same thing every time the benchmark is rerun.
+    as_of: datetime | None = None
 
 
 class ClaimEvidence(StrictContract):
@@ -355,6 +359,32 @@ class LineageMetricNode(StrictContract):
     children: list["LineageMetricNode"] = Field(default_factory=list)
 
 
+class TimeInterpretationView(StrictContract):
+    """How a time phrase became a period, in terms a reader can check.
+
+    Every field is something the backend computed. A reader who disagrees with
+    the answer can see which calendar, which column and which instants produced
+    it, rather than being told the model understood them.
+    """
+
+    phrase: str
+    label: str
+    timezone: str
+    start: str
+    end: str
+    comparison_label: str = ""
+    comparison_start: str | None = None
+    comparison_end: str | None = None
+    grain: str = "NONE"
+    fiscal: bool = False
+    #: The business name of the column the period was applied to, never the
+    #: physical column unless debug provenance is already permitted.
+    time_dimension: str = ""
+    metric_behavior: str = "NONE"
+    policy_status: str = "DEFAULT"
+    as_of: str | None = None
+
+
 class AnswerTraceView(StrictContract):
     """How one answer was produced, in terms a reader can check.
 
@@ -384,6 +414,7 @@ class AnswerTraceView(StrictContract):
     data_quality: list[DataQualityWarning] = Field(default_factory=list)
     model_profile: str = ""
     total_latency_ms: float = 0
+    time: TimeInterpretationView | None = None
     generated_sql: str | None = None
 
 

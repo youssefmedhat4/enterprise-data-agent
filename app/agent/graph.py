@@ -91,6 +91,12 @@ from app.semantic.entities import (
 from app.semantic.entity_values import EntityValueGateway
 from app.semantic.gateway import SemanticDefinition, SemanticGateway, SemanticMeasure
 from app.semantic.in_memory import InMemorySemanticGateway
+from app.timeintel.dimensions import timestamp_expression
+from app.timeintel.guard import (
+    TemporalConstraintError,
+    require_temporal_constraint,
+)
+from app.timeintel.planning import TimePlanning, structural_tags
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +122,7 @@ def build_graph(
     question_memory: QuestionMemory | None = None,
     semantic_model: SemanticModel | None = None,
     guidance_store: InMemoryGuidanceStore | None = None,
+    time_planning: TimePlanning | None = None,
     candidate_trigger: CandidateTrigger | None = None,
     execution_evidence: ExecutionEvidenceStore | None = None,
     schema_fingerprint: str | None = None,
@@ -154,11 +161,11 @@ def build_graph(
         "execute_metric": _execute_metric(metric_gateway),
         "retrieve_schema": _retrieve_schema(semantics, governance, semantic_model),
         "generate_sql": _generate_sql(
-            llm_gateway, guidance_store, data_source_id, semantic_model
+            llm_gateway, guidance_store, data_source_id, semantic_model, time_planning
         ),
         "clarify": _clarify(db_gateway),
         "block": _block(db_gateway),
-        "validate_sql": _validate_sql(sql_validator),
+        "validate_sql": _validate_sql(sql_validator, time_planning),
         "repair_sql": _repair_sql(llm_gateway),
         "execute_sql": _execute_sql(db_gateway),
         "ground_answer": _ground_answer(db_gateway, llm_gateway),
@@ -169,6 +176,7 @@ def build_graph(
             candidate_trigger,
             execution_evidence,
             schema_fingerprint,
+            time_planning,
         ),
     }
     for name, node in nodes.items():
@@ -1118,6 +1126,7 @@ def _generate_sql(
     guidance: InMemoryGuidanceStore | None = None,
     data_source_id: UUID = DEFAULT_DATA_SOURCE_ID,
     semantic_model: SemanticModel | None = None,
+    time_planning: TimePlanning | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         examples, instructions = await _reasoning_guidance(
@@ -1141,6 +1150,7 @@ def _generate_sql(
                     if semantic_model is not None
                     else ()
                 ),
+                time_planning=time_planning,
             ),
             response_model=SQLGeneration,
         )
@@ -1296,7 +1306,9 @@ def _block(db_gateway: DatabaseGateway) -> Node:
     return node
 
 
-def _validate_sql(sql_validator: SQLValidator) -> Node:
+def _validate_sql(
+    sql_validator: SQLValidator, time_planning: TimePlanning | None = None
+) -> Node:
     async def node(state: AgentState) -> AgentState:
         generated_sql = state.get("generated_sql")
         if generated_sql is None:
@@ -1319,6 +1331,19 @@ def _validate_sql(sql_validator: SQLValidator) -> Node:
             "final_validation_status": "valid" if result.is_valid else "invalid",
         }
         if result.is_valid and result.validated_sql is not None:
+            # A valid statement that quietly dropped the period answers over
+            # all of history and looks exactly like a right answer.
+            temporal = _temporal_problem(result.validated_sql, time_planning)
+            if temporal is not None:
+                update["final_validation_status"] = "invalid"
+                if state.get("initial_validation_error_code") is None:
+                    update["initial_validation_error_code"] = "missing_time_filter"
+                if not state.get("sql_repair_attempted", False):
+                    # One bounded repair, the same single attempt a schema
+                    # mistake gets. Never a retry loop.
+                    update["temporal_repair_hint"] = temporal
+                    return update
+                raise SQLValidationError(temporal, result=result)
             update["validated_sql"] = result.validated_sql
             if state.get("sql_repair_attempted", False):
                 update["sql_repair_succeeded"] = True
@@ -1345,7 +1370,30 @@ def _validate_sql(sql_validator: SQLValidator) -> Node:
     return node
 
 
+def _temporal_problem(sql: str, planning: TimePlanning | None) -> str | None:
+    """Whether this statement lost the period the question asked for."""
+    if planning is None or planning.plan is None or planning.dimension is None:
+        return None
+    try:
+        require_temporal_constraint(
+            sql,
+            planning.dimension.column_name,
+            period=planning.plan.label,
+        )
+    except TemporalConstraintError as exc:
+        return str(exc)
+    return None
+
+
 def _route_after_validation(state: AgentState) -> str:
+    """Execute only once the statement is both valid and correctly bounded.
+
+    The validator can find a statement perfectly well-formed while it quietly
+    omits the period the question asked for, so validity alone is not enough to
+    run it.
+    """
+    if state.get("validated_sql") is None:
+        return "repair"
     return "execute" if state["sql_validation_result"].is_valid else "repair"
 
 
@@ -1408,6 +1456,14 @@ def _sql_repair_prompt(state: AgentState, validation: dict[str, Any]) -> str:
         f"Original candidate SQL: {state.get('original_candidate_sql')}\n"
         "Structured validation error: "
         f"{json.dumps(validation, ensure_ascii=False, default=str)}"
+        + (
+            # The validator found the statement well-formed but missing the
+            # period, which reads as a puzzling "valid" error unless it is
+            # named outright.
+            f"\nRequired correction: {hint}"
+            if (hint := state.get("temporal_repair_hint"))
+            else ""
+        )
     )
 
 
@@ -1557,6 +1613,7 @@ def _record_context(
     candidate_trigger: CandidateTrigger | None = None,
     evidence: ExecutionEvidenceStore | None = None,
     schema_fingerprint: str | None = None,
+    time_planning: TimePlanning | None = None,
 ) -> Node:
     async def node(state: AgentState) -> AgentState:
         plan = state.get("analysis_plan", AnalysisPlan())
@@ -1598,6 +1655,7 @@ def _record_context(
                 candidate_trigger,
                 evidence,
                 schema_fingerprint,
+                structural_tags(time_planning),
             )
         return {"analytical_context": context, "conversation_turns": [turn]}
 
@@ -1611,6 +1669,7 @@ async def _remember_question(
     candidate_trigger: CandidateTrigger | None = None,
     evidence: ExecutionEvidenceStore | None = None,
     schema_fingerprint: str | None = None,
+    time_tags: tuple[str, ...] = (),
 ) -> None:
     """Record what was asked and what shape answered it. Never the answer.
 
@@ -1634,7 +1693,9 @@ async def _remember_question(
             dimensions=state["metric_query"].dimensions,
         )
     else:
-        fingerprint = adhoc_fingerprint(state.get("validated_sql") or "")
+        fingerprint = adhoc_fingerprint(
+            state.get("validated_sql") or "", time_tags=time_tags
+        )
 
     execution = state.get("execution_metadata")
     event = QuestionEvent(
@@ -1846,6 +1907,7 @@ def _sql_user_prompt(
     business_instructions: list[BusinessInstruction] | None = None,
     resolved_entities: list[dict[str, str]] | None = None,
     entity_identities: tuple[EntityIdentity, ...] = (),
+    time_planning: TimePlanning | None = None,
 ) -> str:
     schema_lines = [_format_table_metadata(table) for table in metadata]
     schema_context = "\n".join(schema_lines)
@@ -1878,6 +1940,32 @@ def _sql_user_prompt(
         f"Business semantic context:\n{semantic_context}",
         f"Authorized governance context:\n{governance_context}",
     ]
+    if time_planning is not None and time_planning.plan is not None:
+        plan = time_planning.plan
+        dimension = time_planning.dimension
+        assert dimension is not None
+        expression = timestamp_expression(dimension)
+        lines = [
+            f"- Requested: {plan.intent.phrase.strip() or plan.label}",
+            f"- Resolved period ({plan.timezone}): {plan.describe()}",
+            f"- Filter on: {expression}",
+            f"- Boundaries: >= '{plan.primary.start.isoformat()}'"
+            f" AND < '{plan.primary.end.isoformat()}'",
+        ]
+        if plan.comparison is not None:
+            lines.append(
+                f"- Comparison boundaries: >= '{plan.comparison.start.isoformat()}'"
+                f" AND < '{plan.comparison.end.isoformat()}'"
+            )
+        if plan.grain.value != "NONE":
+            lines.append(f"- Group by: {plan.grain.value.lower()}")
+        sections.append(
+            "Resolved time period. These boundaries were computed from this "
+            "database's own calendar and are authoritative -- use them exactly "
+            "and do not re-interpret the phrase yourself. The range is "
+            "half-open: include rows from the start instant and exclude the end "
+            "instant.\n" + "\n".join(lines)
+        )
     if entity_identities:
         identity_lines = "\n".join(
             f"- {identity.entity_name}: identified by {identity.canonical_column}"

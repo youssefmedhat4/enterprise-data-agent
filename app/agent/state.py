@@ -53,6 +53,9 @@ class AgentState(TypedDict, total=False):
     resolved_entity_context: list[dict[str, str]]
     pinned_entity_context: list[dict[str, str]]
     pending_entity_choice: PendingEntityChoice | None
+    #: Set when a valid statement dropped the requested period, so the one
+    #: bounded repair attempt knows what to put back.
+    temporal_repair_hint: str | None
     sql_generation_provider: str
     model_action: str
     generated_sql: str | None

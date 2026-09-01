@@ -51,6 +51,11 @@ from app.knowledge.postgres_memory import PostgresQuestionMemory
 from app.knowledge.postgres_metrics import PostgresMetricRegistry
 from app.knowledge.postgres_quality import PostgresQualityStore
 from app.knowledge.postgres_semantics import PostgresSemanticRepository
+from app.knowledge.postgres_time import (
+    InMemoryTimeIntelligenceStore,
+    PostgresTimeIntelligenceStore,
+    TimeIntelligenceStore,
+)
 from app.knowledge.quality import InMemoryQualityStore, QualityStore
 from app.knowledge.retrieval import MetricRetriever
 from app.knowledge.seed import (
@@ -103,6 +108,8 @@ class KnowledgeRuntime:
     #: Where approved filters, synonyms, aliases, join rules and description
     #: revisions live once a reviewer has promoted them.
     learned: LearnedKnowledgeStore | None
+    #: One datasource's calendar and the columns that carry time.
+    time_intelligence: TimeIntelligenceStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -184,6 +191,7 @@ async def build_knowledge_runtime(
         evaluations=PostgresEvaluationStore(pool),
         quality=PostgresQualityStore(pool),
         learned=PostgresLearnedKnowledgeStore(pool),
+        time_intelligence=PostgresTimeIntelligenceStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -213,6 +221,7 @@ async def _in_memory_runtime(
         evaluations=InMemoryEvaluationStore(),
         quality=InMemoryQualityStore(),
         learned=InMemoryLearnedKnowledgeStore(),
+        time_intelligence=InMemoryTimeIntelligenceStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,

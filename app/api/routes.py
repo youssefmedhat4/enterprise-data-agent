@@ -12,8 +12,10 @@ from app.agent.checkpointing import (
     ConversationCheckpointStore,
     build_conversation_checkpoint_store,
 )
+from app.agent.context import AnalysisPlan
 from app.agent.graph import build_graph
 from app.agent.lineage import lineage_from_sql
+from app.agent.provenance import build_internal_provenance
 from app.authentication.factory import build_authentication_gateway
 from app.authentication.gateway import (
     AuthenticationCredentials,
@@ -31,10 +33,12 @@ from app.contracts.analytics import (
     AnswerTraceView,
     ClarificationChoice,
     DataQualityWarning,
+    ExecutionMetadata,
     HealthResponse,
     InternalProvenance,
     LineageMetricNode,
     LineageTable,
+    TimeInterpretationView,
 )
 from app.data.factory import build_database_gateway
 from app.data.gateway import DatabaseGateway, DatabaseUnavailableError
@@ -59,6 +63,8 @@ from app.semantic.entities import sampleable_columns
 from app.semantic.entity_values import DatabaseEntityValueGateway
 from app.semantic.factory import build_semantic_gateway
 from app.semantic.gateway import SemanticGateway
+from app.timeintel.clock import Clock, FixedClock, SystemClock
+from app.timeintel.planning import TimePlanning, plan_time
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +383,7 @@ async def _answer_trace(
     model_profile: str,
     quality: list[DataQualityWarning],
     include_sql: bool,
+    time_planning: TimePlanning | None = None,
 ) -> AnswerTraceView:
     """Assemble what can be said about how this answer was produced.
 
@@ -449,7 +456,134 @@ async def _answer_trace(
             + provenance.repair_latency_ms,
             1,
         ),
+        time=_time_view(time_planning),
         generated_sql=provenance.validated_sql if include_sql else None,
+    )
+
+
+def _time_view(planning: TimePlanning | None) -> TimeInterpretationView | None:
+    """The time interpretation, as computed rather than as described."""
+    if planning is None or planning.plan is None:
+        return None
+    plan = planning.plan
+    dimension = planning.dimension
+    return TimeInterpretationView(
+        phrase=plan.intent.phrase.strip(),
+        label=plan.label,
+        timezone=plan.timezone,
+        start=plan.primary.start.isoformat(),
+        end=plan.primary.end.isoformat(),
+        comparison_label=plan.comparison_label,
+        comparison_start=(
+            plan.comparison.start.isoformat() if plan.comparison else None
+        ),
+        comparison_end=plan.comparison.end.isoformat() if plan.comparison else None,
+        grain=plan.grain.value,
+        fiscal=plan.fiscal,
+        # The reviewed business name, not the physical column: a reader needs
+        # to know it was measured on the invoice date, not that the column is
+        # called inv_dt_chr.
+        time_dimension=(dimension.concept_name or "") if dimension else "",
+        policy_status=plan.policy_status,
+        as_of=plan.as_of.isoformat() if plan.as_of else None,
+    )
+
+
+def _clock_for(request: AnalyticsRequest) -> Clock:
+    """The instant this request resolves relative periods against.
+
+    Normally now. An evaluation supplies a fixed anchor instead, because
+    "revenue year to date" otherwise means something different every month and
+    the regression a benchmark was written to catch never fails twice the same
+    way.
+    """
+    anchor = getattr(request, "as_of", None)
+    return FixedClock(anchor) if anchor is not None else SystemClock()
+
+
+async def _plan_time_for(
+    knowledge: KnowledgeRuntime,
+    data_source_id: UUID,
+    question: str,
+    *,
+    clock: Clock,
+    tables: set[str],
+) -> TimePlanning:
+    """Resolve the requested period, or say why it cannot be resolved.
+
+    Never fails the request on its own: a datasource with no time intelligence
+    configured answers exactly as it did before this layer existed.
+    """
+    store = knowledge.time_intelligence
+    if store is None:
+        return TimePlanning()
+    try:
+        policy = await store.policy(data_source_id)
+        dimensions = await store.dimensions(data_source_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("time policy lookup failed: %s", type(exc).__name__)
+        return TimePlanning()
+    return plan_time(
+        question,
+        policy=policy,
+        dimensions=dimensions,
+        tables=tables,
+        clock=clock,
+    )
+
+
+def _time_attention_response(
+    *,
+    request: AnalyticsRequest,
+    request_id: str,
+    thread_id: str,
+    data_source_id: UUID,
+    profile: Any,
+    planning: TimePlanning,
+    source: Any,
+) -> AnalyticsResponse:
+    """Ask, or say plainly that the period cannot be honoured.
+
+    Both outcomes are better than the alternative they replace: answering
+    without the filter, over all of history, in a way that looks like a result.
+    """
+    message = planning.clarification or planning.unsupported or ""
+    execution = ExecutionMetadata(
+        query_id=None,
+        status="clarification_required",
+        row_count=0,
+        duration_ms=0,
+        executed_at=None,
+    )
+    provenance = build_internal_provenance(
+        request_id=request_id,
+        trace_id=request_id,
+        source=source,
+        generated_sql=None,
+        validated_sql=None,
+        rows=[],
+        analysis=AnalysisPlan(),
+        execution=execution,
+        model_aliases=[],
+    ).public_view()
+    return AnalyticsResponse(
+        request_id=request_id,
+        thread_id=thread_id,
+        model_profile=profile.profile,
+        data_source_id=data_source_id,
+        model_display_name=profile.display_name,
+        status="clarification_required",
+        answer=message,
+        columns=[],
+        rows=[],
+        sources=[provenance.source],
+        provenance=provenance,
+        freshness=provenance.freshness,
+        chart=None,
+        clarification_required=True,
+        clarification_question=message,
+        warnings=[],
+        execution=execution,
     )
 
 
@@ -527,6 +661,29 @@ async def query_analytics(
     # Thread identity carries the datasource, so a thread started against one
     # database cannot supply prior context to another. Switching datasource in
     # the client yields a different thread key and therefore a fresh context.
+    # What period this question covers, decided from this datasource's own
+    # calendar rather than by the model. No extra model call: the phrase is
+    # recognised deterministically and the boundaries are computed.
+    time_planning = await _plan_time_for(
+        knowledge,
+        active_data_source_id,
+        request.question,
+        clock=_clock_for(request),
+        tables={table.identifier for table in await execution_gateway.search_schema(
+            request.question
+        )},
+    )
+    if time_planning.needs_attention:
+        return _time_attention_response(
+            request=request,
+            request_id=request_id,
+            thread_id=request.thread_id
+            or f"{active_data_source_id}:{uuid4()}",
+            data_source_id=active_data_source_id,
+            profile=settings.resolve_model_profile(request.model_profile),
+            planning=time_planning,
+            source=execution_gateway.source(),
+        )
     thread_id = request.thread_id or f"{active_data_source_id}:{uuid4()}"
     selected_model_profile = settings.resolve_model_profile(request.model_profile)
     # Per request, because the planner must use the model this request selected.
@@ -577,6 +734,7 @@ async def query_analytics(
             knowledge.evidence if settings.question_memory_enabled else None
         ),
         schema_fingerprint=active_schema_fingerprint,
+        time_planning=time_planning,
         enable_query_router=True,
         authorization_gateway=authorization_gateway,
         governance_gateway=governance_gateway,
@@ -705,6 +863,7 @@ async def query_analytics(
             model_profile=selected_model_profile.display_name,
             quality=quality_warnings,
             include_sql=include_debug,
+            time_planning=time_planning,
         ),
         warnings=result.get("warnings", []),
         execution=execution,

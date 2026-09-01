@@ -66,7 +66,7 @@ def governed_fingerprint(
     return _finalize(parts)
 
 
-def adhoc_fingerprint(sql: str) -> str:
+def adhoc_fingerprint(sql: str, *, time_tags: tuple[str, ...] = ()) -> str:
     """Fingerprint for validated ad-hoc SQL, derived from its parsed shape.
 
     Only structure is read: which tables were touched, which aggregate functions
@@ -77,13 +77,20 @@ def adhoc_fingerprint(sql: str) -> str:
     Falls back to a parse-failure marker rather than raising: a fingerprint is
     memory, and failing to remember must not fail a request that already
     succeeded.
+
+    `time_tags` carries the *concept* of a period rather than its dates. Since
+    literals are never read, "revenue year to date" and "revenue last month"
+    would otherwise produce identical shapes and collapse into one cluster,
+    while the same question asked in two months would already share one. The
+    tag keeps both of those right: `time:YEAR_TO_DATE` recurs across months and
+    stays distinct from `time:LAST_MONTH`.
     """
     try:
         statement = sqlglot.parse_one(sql)
     except Exception:
-        return _finalize(["route=adhoc", "parse=failed"])
+        return _finalize(["route=adhoc", "parse=failed", *sorted(time_tags)])
     if statement is None:
-        return _finalize(["route=adhoc", "parse=failed"])
+        return _finalize(["route=adhoc", "parse=failed", *sorted(time_tags)])
 
     tables = sorted(
         {
@@ -126,6 +133,7 @@ def adhoc_fingerprint(sql: str) -> str:
     ]
     if predicates:
         parts.append(f"predicates={','.join(predicates)}")
+    parts.extend(sorted(time_tags))
     if list(statement.find_all(exp.Join)):
         parts.append(f"joins={len(list(statement.find_all(exp.Join)))}")
     if statement.find(exp.Order) is not None:
