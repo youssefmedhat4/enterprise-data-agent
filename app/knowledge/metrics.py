@@ -41,6 +41,20 @@ class MetricDimensionSpec(StrictContract):
     semantic_attribute_id: UUID | None = None
 
 
+class TemporalBehavior(StrEnum):
+    """How a measure behaves across a period.
+
+    The distinction that matters: invoiced revenue accumulates, so asking for
+    it year to date is meaningful; headcount does not, and totalling it over a
+    year is arithmetic on a category error. Recording which is which is what
+    lets the system decline the second rather than answer it.
+    """
+
+    NONE = "NONE"
+    FLOW = "FLOW"
+    SNAPSHOT = "SNAPSHOT"
+
+
 class RegisteredMetric(StrictContract):
     """A governed metric definition owned by one datasource."""
 
@@ -64,6 +78,15 @@ class RegisteredMetric(StrictContract):
     concepts: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
     example_questions: tuple[str, ...] = ()
+    #: How this measure behaves across time. A FLOW accumulates over a period,
+    #: so a year-to-date total means something; a SNAPSHOT describes a moment,
+    #: and summing daily headcounts across a year produces a number with no
+    #: meaning at all. NONE means nobody has said, which is different from
+    #: saying the metric is not temporal.
+    temporal_behavior: TemporalBehavior = TemporalBehavior.NONE
+    #: The confirmed temporal column this metric measures against, so a
+    #: governed answer never falls back to an unrelated date.
+    temporal_dimension_id: UUID | None = None
     approved_at: datetime | None = None
     approved_by: str | None = None
 

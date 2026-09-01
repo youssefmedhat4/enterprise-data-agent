@@ -410,3 +410,136 @@ def test_the_plan_describes_itself_for_a_reader() -> None:
     assert "2026-07-01 00:00 to 2026-09-01 12:00" in described
     assert "same period last year" in described
     assert plan.grain is Grain.MONTH
+
+
+# --- metric behaviour --------------------------------------------------------
+
+
+def test_a_snapshot_measure_is_not_totalled_across_a_period() -> None:
+    """Headcount year to date is not the sum of daily headcounts.
+
+    Summing a snapshot over time is arithmetic on a category error, and the
+    number it produces looks entirely ordinary. Declining beats inventing.
+    """
+    from app.knowledge.contracts import ApprovalStatus
+    from app.timeintel.dimensions import (
+        TemporalDimension,
+        TemporalRole,
+        TemporalStorage,
+    )
+    from app.timeintel.planning import plan_time
+
+    dimension = TemporalDimension(
+        data_source_id=SOURCE,
+        semantic_attribute_id=uuid4(),
+        role=TemporalRole.EVENT_TIME,
+        storage=TemporalStorage.NATIVE_DATE,
+        schema_name="erp",
+        table_name="emp_mst",
+        column_name="hire_dt",
+        concept_name="Hire Date",
+        entity_name="Employee",
+        is_default_for_entity=True,
+        status=ApprovalStatus.CONFIRMED,
+    )
+
+    planning = plan_time(
+        "How many active employees year to date?",
+        policy=_policy(),
+        dimensions=[dimension],
+        tables={"erp.emp_mst"},
+        clock=CLOCK,
+        metric_behavior="SNAPSHOT",
+    )
+
+    assert planning.plan is None
+    assert planning.unsupported is not None
+    assert "point in time" in planning.unsupported
+
+
+def test_a_flow_measure_resolves_normally() -> None:
+    from app.knowledge.contracts import ApprovalStatus
+    from app.timeintel.dimensions import (
+        TemporalDimension,
+        TemporalRole,
+        TemporalStorage,
+    )
+    from app.timeintel.planning import plan_time
+
+    dimension = TemporalDimension(
+        data_source_id=SOURCE,
+        semantic_attribute_id=uuid4(),
+        role=TemporalRole.EVENT_TIME,
+        storage=TemporalStorage.NATIVE_DATE,
+        schema_name="erp",
+        table_name="ar_inv_hdr",
+        column_name="inv_dt",
+        concept_name="Invoice Date",
+        entity_name="Invoice",
+        is_default_for_entity=True,
+        status=ApprovalStatus.CONFIRMED,
+    )
+
+    planning = plan_time(
+        "Show invoiced revenue year to date",
+        policy=_policy(),
+        dimensions=[dimension],
+        tables={"erp.ar_inv_hdr"},
+        clock=CLOCK,
+        metric_behavior="FLOW",
+    )
+
+    assert planning.plan is not None
+    assert planning.dimension is dimension
+    assert _local(planning.plan.primary.start) == "2026-01-01 00:00"
+
+
+def test_a_metric_binding_overrides_which_column_is_chosen() -> None:
+    """An approved binding is a decision; inference is a guess."""
+    from app.knowledge.contracts import ApprovalStatus
+    from app.timeintel.dimensions import (
+        TemporalDimension,
+        TemporalRole,
+        TemporalStorage,
+    )
+    from app.timeintel.planning import plan_time
+
+    def _dimension(column: str, concept: str, role: TemporalRole) -> TemporalDimension:
+        return TemporalDimension(
+            data_source_id=SOURCE,
+            semantic_attribute_id=uuid4(),
+            role=role,
+            storage=TemporalStorage.NATIVE_DATE,
+            schema_name="erp",
+            table_name="prj_hdr",
+            column_name=column,
+            concept_name=concept,
+            entity_name="Project",
+            status=ApprovalStatus.CONFIRMED,
+        )
+
+    started = _dimension("start_dt", "Project Start Date", TemporalRole.START_DATE)
+    closed = _dimension("end_dt", "Project Close Date", TemporalRole.END_DATE)
+
+    # With no binding the question is genuinely ambiguous.
+    ambiguous = plan_time(
+        "Projects last year",
+        policy=_policy(),
+        dimensions=[started, closed],
+        tables={"erp.prj_hdr"},
+        clock=CLOCK,
+    )
+    assert ambiguous.plan is None
+    assert ambiguous.clarification is not None
+    assert "Project Start Date" in ambiguous.clarification
+
+    # The binding settles it.
+    bound = plan_time(
+        "Projects last year",
+        policy=_policy(),
+        dimensions=[started, closed],
+        tables={"erp.prj_hdr"},
+        clock=CLOCK,
+        metric_dimension_id=closed.id,
+    )
+    assert bound.dimension is closed

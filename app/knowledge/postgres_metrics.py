@@ -20,7 +20,12 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row, tuple_row
 from psycopg_pool import AsyncConnectionPool
 
-from app.knowledge.metrics import MetricDimensionSpec, MetricStatus, RegisteredMetric
+from app.knowledge.metrics import (
+    MetricDimensionSpec,
+    MetricStatus,
+    RegisteredMetric,
+    TemporalBehavior,
+)
 
 
 class MetricRegistryError(RuntimeError):
@@ -30,7 +35,8 @@ class MetricRegistryError(RuntimeError):
 _SELECT_METRIC = """
     SELECT id, data_source_id, metric_key, display_name, description,
            business_meaning, version, status, semantic_expression, grain,
-           unit, null_behavior, owner, approved_at, approved_by
+           unit, null_behavior, owner, temporal_behavior,
+           temporal_dimension_id, approved_at, approved_by
       FROM knowledge.metric_definitions
      WHERE data_source_id = %(data_source_id)s
 """
@@ -39,12 +45,14 @@ _UPSERT_METRIC = """
     INSERT INTO knowledge.metric_definitions
         (id, data_source_id, metric_key, display_name, description,
          business_meaning, version, status, semantic_expression, grain,
-         unit, null_behavior, owner, approved_at, approved_by)
+         unit, null_behavior, owner, temporal_behavior,
+         temporal_dimension_id, approved_at, approved_by)
     VALUES
         (%(id)s, %(data_source_id)s, %(metric_key)s, %(display_name)s,
          %(description)s, %(business_meaning)s, %(version)s, %(status)s,
          %(semantic_expression)s, %(grain)s, %(unit)s, %(null_behavior)s,
-         %(owner)s, %(approved_at)s, %(approved_by)s)
+         %(owner)s, %(temporal_behavior)s, %(temporal_dimension_id)s,
+         %(approved_at)s, %(approved_by)s)
     ON CONFLICT (data_source_id, metric_key, version)
     DO UPDATE SET
         display_name = EXCLUDED.display_name,
@@ -56,6 +64,8 @@ _UPSERT_METRIC = """
         unit = EXCLUDED.unit,
         null_behavior = EXCLUDED.null_behavior,
         owner = EXCLUDED.owner,
+        temporal_behavior = EXCLUDED.temporal_behavior,
+        temporal_dimension_id = EXCLUDED.temporal_dimension_id,
         approved_at = EXCLUDED.approved_at,
         approved_by = EXCLUDED.approved_by,
         updated_at = now()
@@ -133,6 +143,8 @@ class PostgresMetricRegistry:
                     "unit": metric.unit,
                     "null_behavior": metric.null_behavior,
                     "owner": metric.owner,
+                    "temporal_behavior": metric.temporal_behavior.value,
+                    "temporal_dimension_id": metric.temporal_dimension_id,
                     "approved_at": metric.approved_at,
                     "approved_by": metric.approved_by,
                 },
@@ -313,6 +325,8 @@ def _to_metric(
         unit=definition["unit"],
         null_behavior=definition["null_behavior"],
         owner=definition["owner"],
+        temporal_behavior=TemporalBehavior(definition["temporal_behavior"]),
+        temporal_dimension_id=definition["temporal_dimension_id"],
         dimensions=tuple(children["dimensions"].get(metric_id, [])),
         concepts=tuple(children["concepts"].get(metric_id, [])),
         dependencies=tuple(children["dependencies"].get(metric_id, [])),

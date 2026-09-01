@@ -63,6 +63,40 @@ export function AnswerTrace({ question, response }: AnswerTraceProps) {
             <Row label="Model" value={trace.model_profile} />
           </Section>
 
+          {trace.time !== null ? (
+            <Section title="Time interpretation">
+              <Row label="You asked for" value={trace.time.phrase || trace.time.label} />
+              <Row label="Read as" value={trace.time.label} />
+              <Row label="Time zone" value={trace.time.timezone} />
+              <Row
+                label="Period"
+                value={`${local(trace.time.start, trace.time.timezone)} to ${local(
+                  trace.time.end,
+                  trace.time.timezone,
+                )}`}
+              />
+              {trace.time.comparison_start !== null &&
+              trace.time.comparison_end !== null ? (
+                <Row
+                  label={trace.time.comparison_label || "Compared with"}
+                  value={`${local(
+                    trace.time.comparison_start,
+                    trace.time.timezone,
+                  )} to ${local(trace.time.comparison_end, trace.time.timezone)}`}
+                />
+              ) : null}
+              {trace.time.time_dimension !== "" ? (
+                <Row label="Measured on" value={trace.time.time_dimension} />
+              ) : null}
+              {trace.time.grain !== "NONE" ? (
+                <Row label="Grouped by" value={trace.time.grain.toLowerCase()} />
+              ) : null}
+              {trace.time.fiscal ? (
+                <Row label="Calendar" value={`fiscal (${trace.time.policy_status})`} />
+              ) : null}
+            </Section>
+          ) : null}
+
           {trace.metrics.length > 0 ? (
             <Section title="Metrics">
               {trace.metric_lineage.map((node) => (
@@ -157,6 +191,19 @@ function summary(trace: NonNullable<AnalyticsResponse["trace"]>): string {
         } shaped it.`
       : "";
   return `Answered from ${source} using ${path}.${tables}${rules}`;
+}
+
+/** Local wall-clock, because the period was decided in the datasource's zone. */
+function local(instant: string, timezone: string): string {
+  try {
+    return new Date(instant).toLocaleString(undefined, {
+      timeZone: timezone,
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return instant;
+  }
 }
 
 function routeLabel(route: string): string {

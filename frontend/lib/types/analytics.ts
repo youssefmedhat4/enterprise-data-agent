@@ -190,6 +190,30 @@ export interface AnalyticsResponse {
   execution: ExecutionMetadata;
 }
 
+/**
+ * How a time phrase became a period.
+ *
+ * Computed by the backend from this database's own calendar, so a reader can
+ * check which window produced the answer rather than trusting that the phrase
+ * was understood.
+ */
+export interface TimeInterpretation {
+  phrase: string;
+  label: string;
+  timezone: string;
+  start: string;
+  end: string;
+  comparison_label: string;
+  comparison_start: string | null;
+  comparison_end: string | null;
+  grain: string;
+  fiscal: boolean;
+  time_dimension: string;
+  metric_behavior: string;
+  policy_status: string;
+  as_of: string | null;
+}
+
 export interface LineageTable {
   table: string;
   columns: string[];
@@ -228,6 +252,7 @@ export interface AnswerTrace {
   data_quality: DataQualityWarning[];
   model_profile: string;
   total_latency_ms: number;
+  time: TimeInterpretation | null;
   generated_sql: string | null;
 }
 

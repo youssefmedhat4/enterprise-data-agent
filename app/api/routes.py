@@ -508,6 +508,8 @@ async def _plan_time_for(
     *,
     clock: Clock,
     tables: set[str],
+    metric_behavior: str | None = None,
+    metric_dimension_id: UUID | None = None,
 ) -> TimePlanning:
     """Resolve the requested period, or say why it cannot be resolved.
 
@@ -529,6 +531,8 @@ async def _plan_time_for(
         dimensions=dimensions,
         tables=tables,
         clock=clock,
+        metric_behavior=metric_behavior,
+        metric_dimension_id=metric_dimension_id,
     )
 
 
@@ -585,6 +589,36 @@ def _time_attention_response(
         warnings=[],
         execution=execution,
     )
+
+
+async def _metric_time_binding(
+    knowledge: KnowledgeRuntime, data_source_id: UUID, question: str
+) -> dict[str, Any]:
+    """A certified metric's own temporal binding, when one clearly applies.
+
+    Only used when exactly one certified metric names itself in the question.
+    Guessing which metric a sentence means is the router's job, and borrowing a
+    binding from the wrong one would silently measure against the wrong date.
+    """
+    registry = knowledge.registry
+    try:
+        certified = await registry.certified(data_source_id)
+    except Exception:  # pragma: no cover - defensive
+        return {}
+    folded = question.casefold()
+    named = [
+        metric
+        for metric in certified
+        if metric.display_name.casefold() in folded
+        or metric.metric_key.casefold() in folded
+    ]
+    if len(named) != 1:
+        return {}
+    metric = named[0]
+    return {
+        "metric_behavior": metric.temporal_behavior.value,
+        "metric_dimension_id": metric.temporal_dimension_id,
+    }
 
 
 @router.post(
@@ -672,6 +706,11 @@ async def query_analytics(
         tables={table.identifier for table in await execution_gateway.search_schema(
             request.question
         )},
+        # A certified metric already says which column it measures against and
+        # whether it accumulates. Both beat inference: an approved binding is a
+        # decision, and "headcount year to date" is a category error rather
+        # than a query to attempt.
+        **await _metric_time_binding(knowledge, active_data_source_id, request.question),
     )
     if time_planning.needs_attention:
         return _time_attention_response(

@@ -19,6 +19,7 @@ import {
 
 import { EvaluationsPanel } from "@/components/knowledge/evaluations-panel";
 import { QualityPanel } from "@/components/knowledge/quality-panel";
+import { TimePanel } from "@/components/knowledge/time-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -257,6 +258,7 @@ export function KnowledgeConsole({
           <TabsTrigger value="examples">Approved examples</TabsTrigger>
           <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
           <TabsTrigger value="quality">Data quality</TabsTrigger>
+          <TabsTrigger value="time">Time intelligence</TabsTrigger>
         </TabsList>
 
         {/* --------------------------------------------------- data sources */}
@@ -717,6 +719,11 @@ export function KnowledgeConsole({
         {/* -------------------------------------------------- data quality */}
         <TabsContent value="quality" className="mt-4">
           <QualityPanel dataSourceId={dataSourceId} />
+        </TabsContent>
+
+        {/* --------------------------------------------- time intelligence */}
+        <TabsContent value="time" className="mt-4">
+          <TimePanel dataSourceId={dataSourceId} />
         </TabsContent>
       </Tabs>
     </section>
