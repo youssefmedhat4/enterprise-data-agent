@@ -11,6 +11,7 @@ from app.api.evaluation_routes import router as evaluation_router
 from app.api.knowledge_routes import router as knowledge_router
 from app.api.quality_routes import router as quality_router
 from app.api.routes import router
+from app.api.time_routes import router as time_router
 from app.config import get_settings
 from app.errors import ApplicationError, ErrorCode, ErrorDetail, ErrorResponse
 from app.knowledge.runtime import build_knowledge_runtime
@@ -125,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(evaluation_router)
     app.include_router(quality_router)
+    app.include_router(time_router)
     return app
 
 

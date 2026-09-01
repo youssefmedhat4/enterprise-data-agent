@@ -13,6 +13,7 @@ exactly what a client would receive.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -36,7 +37,13 @@ class InProcessAnalysisRunner:
         self._authorization = authorization
         self._timeout = timeout_seconds
 
-    async def ask(self, *, question: str, data_source_id: UUID) -> dict[str, Any]:
+    async def ask(
+        self,
+        *,
+        question: str,
+        data_source_id: UUID,
+        as_of: datetime | None = None,
+    ) -> dict[str, Any]:
         from httpx import ASGITransport, AsyncClient
 
         from app.main import app
@@ -60,6 +67,10 @@ class InProcessAnalysisRunner:
                     # caller's authority; a case that asserts on route simply
                     # cannot be checked where debug provenance is off.
                     "include_debug": True,
+                    # Injected through the application path rather than by
+                    # moving the system clock, so a run stays reproducible
+                    # without changing anything global.
+                    **({"as_of": as_of.isoformat()} if as_of is not None else {}),
                 },
             )
         body: dict[str, Any] = response.json()

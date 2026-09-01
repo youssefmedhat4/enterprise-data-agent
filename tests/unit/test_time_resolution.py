@@ -68,7 +68,7 @@ def _local(moment: datetime, zone: str = "Africa/Cairo") -> str:
 
 def _resolved(period: PeriodType, **fields: object) -> tuple[str, str]:
     plan = resolve(
-        TimeIntent(period=period, **fields),  # type: ignore[arg-type]
+        TimeIntent(period=period, **fields),
         _policy(),
         clock=CLOCK,
     )

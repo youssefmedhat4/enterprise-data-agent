@@ -89,6 +89,10 @@ class EvaluationCase:
     expected_route: str | None = None
     expected_metric_ids: tuple[str, ...] = ()
     status: CaseStatus = CaseStatus.ACTIVE
+    #: The instant a relative period resolves against. Without one, "revenue
+    #: year to date" means something different every month and the regression
+    #: this case was written to catch never fails twice the same way.
+    as_of: datetime | None = None
     created_by: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -123,6 +127,8 @@ class EvaluationRun:
     average_latency_ms: float = 0.0
     configuration: dict[str, Any] = field(default_factory=dict)
     triggered_by: str | None = None
+    #: The anchor this run resolved relative periods against.
+    as_of: datetime | None = None
     results: tuple[CaseResult, ...] = ()
 
     @property

@@ -127,11 +127,15 @@ def timestamp_expression(
     reference = f"{_quote(relation.strip(chr(34)))}.{column}" if relation else column
 
     if dimension.storage is TemporalStorage.YYYYMMDD_TEXT:
-        # Text dates compare and sort wrongly, and a bad row must not fail the
-        # whole query -- so the conversion is explicit and guarded.
+        # Text dates compare and sort wrongly, and one malformed row must not
+        # take the whole answer with it -- a bare cast raises and the query
+        # dies. The guard checks eight characters that are all digits, using
+        # `translate` rather than a pattern: no regex engine is involved, and
+        # nothing here accepts a caller-supplied expression.
         return (
-            f"CASE WHEN {reference} ~ '^[0-9]{{8}}$' "
-            f"THEN to_timestamp({reference}, 'YYYYMMDD') END"
+            f"CASE WHEN length(trim({reference})) = 8 "
+            f"AND translate(trim({reference}), '0123456789', '') = '' "
+            f"THEN to_timestamp(trim({reference}), 'YYYYMMDD') END"
         )
     if dimension.storage is TemporalStorage.NATIVE_DATE:
         return f"{reference}::timestamp"

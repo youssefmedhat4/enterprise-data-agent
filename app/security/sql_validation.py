@@ -130,6 +130,10 @@ class SQLValidator:
             # `str_to_time`, `position`/`strpos` as `str_position`. Listing the
             # surface spelling alone silently rejects the function.
             "str_position", "str_to_date", "str_to_time", "string_agg",
+            # `date_trunc` parses as `timestamp_trunc`, so listing only the
+            # surface spelling blocked grouping by month -- the single most
+            # common thing a time-series question asks for.
+            "timestamp_trunc",
             "strpos", "substring", "sum", "to_char", "to_date", "to_number",
             "to_timestamp", "translate", "trim", "trunc", "upper", "var_pop",
             "var_samp", "variance",

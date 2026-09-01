@@ -43,7 +43,11 @@ class AnalysisRunner(Protocol):
     """Asks one question the way a user would, and returns what came back."""
 
     async def ask(
-        self, *, question: str, data_source_id: UUID
+        self,
+        *,
+        question: str,
+        data_source_id: UUID,
+        as_of: datetime | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -66,6 +70,7 @@ class EvaluationRunner:
         model_profile: str,
         triggered_by: str | None = None,
         configuration: dict[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> EvaluationRun:
         cases = await self._store.cases(data_source_id)
         started = datetime.now(UTC)
@@ -73,7 +78,7 @@ class EvaluationRunner:
 
         async def one(case: EvaluationCase) -> CaseResult:
             async with limiter:
-                return await self._evaluate(case, data_source_id)
+                return await self._evaluate(case, data_source_id, as_of)
 
         results = (
             tuple(await asyncio.gather(*(one(case) for case in cases)))
@@ -96,17 +101,25 @@ class EvaluationRunner:
             average_latency_ms=(sum(latencies) / len(latencies)) if latencies else 0.0,
             configuration=configuration or {},
             triggered_by=triggered_by,
+            as_of=as_of,
             results=results,
         )
         return await self._store.record_run(run)
 
     async def _evaluate(
-        self, case: EvaluationCase, data_source_id: UUID
+        self,
+        case: EvaluationCase,
+        data_source_id: UUID,
+        run_as_of: datetime | None = None,
     ) -> CaseResult:
         started = perf_counter()
         try:
             answer = await self._analysis.ask(
-                question=case.question, data_source_id=data_source_id
+                question=case.question,
+                data_source_id=data_source_id,
+                # The case's own anchor wins: a benchmark about a relative
+                # period is only reproducible against a fixed instant.
+                as_of=case.as_of or run_as_of,
             )
         except Exception as exc:
             # A case that could not be asked is an ERROR, deliberately distinct

@@ -21,14 +21,13 @@ from app.api.routes import (
     get_database_gateway,
     get_knowledge_runtime,
     get_llm_gateway,
-    get_settings,
 )
 from app.authorization.gateway import (
     AuthorizationDecision,
     AuthorizationGateway,
     AuthorizationRequest,
 )
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.contracts.analytics import ClaimEvidence, GroundedClaim
 from app.data.fake import FakeDatabaseGateway
 from app.data.gateway import (
@@ -228,7 +227,7 @@ def _policy() -> TimePolicy:
 
 
 def _debug_settings() -> Settings:
-    return Settings(API_DEBUG_PROVENANCE_ENABLED=True)  # type: ignore[call-arg]
+    return Settings(API_DEBUG_PROVENANCE_ENABLED=True)
 
 
 async def _runtime(

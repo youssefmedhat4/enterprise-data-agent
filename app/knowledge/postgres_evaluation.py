@@ -27,19 +27,19 @@ from app.knowledge.evaluation import (
 
 _CASE_COLUMNS = """
     id, data_source_id, name, question, expectation, expected, tolerance,
-    ordered, expected_route, expected_metric_ids, status, created_by,
+    ordered, expected_route, expected_metric_ids, status, as_of, created_by,
     created_at, updated_at
 """
 
 _UPSERT_CASE = """
     INSERT INTO knowledge.evaluation_cases
         (id, data_source_id, name, question, expectation, expected, tolerance,
-         ordered, expected_route, expected_metric_ids, status, created_by,
+         ordered, expected_route, expected_metric_ids, status, as_of, created_by,
          created_at, updated_at)
     VALUES
         (%(id)s, %(data_source_id)s, %(name)s, %(question)s, %(expectation)s,
          %(expected)s, %(tolerance)s, %(ordered)s, %(route)s, %(metric_ids)s,
-         %(status)s, %(created_by)s, %(created_at)s, now())
+         %(status)s, %(as_of)s, %(created_by)s, %(created_at)s, now())
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         question = EXCLUDED.question,
@@ -50,6 +50,7 @@ _UPSERT_CASE = """
         expected_route = EXCLUDED.expected_route,
         expected_metric_ids = EXCLUDED.expected_metric_ids,
         status = EXCLUDED.status,
+        as_of = EXCLUDED.as_of,
         updated_at = now()
 """
 
@@ -77,6 +78,7 @@ class PostgresEvaluationStore(EvaluationStore):
                     "route": case.expected_route,
                     "metric_ids": list(case.expected_metric_ids),
                     "status": case.status.value,
+                    "as_of": case.as_of,
                     "created_by": case.created_by,
                     "created_at": case.created_at,
                 },
@@ -124,11 +126,11 @@ class PostgresEvaluationStore(EvaluationStore):
                 "INSERT INTO knowledge.evaluation_runs"
                 " (id, data_source_id, model_profile, started_at, finished_at,"
                 "  case_count, passed, failed, errored, average_latency_ms,"
-                "  configuration, triggered_by)"
+                "  configuration, triggered_by, as_of)"
                 " VALUES (%(id)s, %(data_source_id)s, %(model_profile)s,"
                 "  %(started_at)s, %(finished_at)s, %(case_count)s, %(passed)s,"
                 "  %(failed)s, %(errored)s, %(latency)s, %(configuration)s,"
-                "  %(triggered_by)s)"
+                "  %(triggered_by)s, %(as_of)s)"
                 " ON CONFLICT (id) DO UPDATE SET"
                 "  finished_at = EXCLUDED.finished_at,"
                 "  case_count = EXCLUDED.case_count,"
@@ -149,6 +151,7 @@ class PostgresEvaluationStore(EvaluationStore):
                     "latency": run.average_latency_ms,
                     "configuration": Jsonb(run.configuration),
                     "triggered_by": run.triggered_by,
+                    "as_of": run.as_of,
                 },
             )
             for result in run.results:
@@ -244,6 +247,7 @@ class PostgresEvaluationStore(EvaluationStore):
             average_latency_ms=run.average_latency_ms,
             configuration=run.configuration,
             triggered_by=run.triggered_by,
+            as_of=run.as_of,
             results=results,
         )
 
@@ -261,6 +265,7 @@ def _to_case(row: dict[str, Any]) -> EvaluationCase:
         expected_route=row["expected_route"],
         expected_metric_ids=tuple(row["expected_metric_ids"] or ()),
         status=CaseStatus(row["status"]),
+        as_of=row["as_of"],
         created_by=row["created_by"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -281,4 +286,5 @@ def _to_run(row: dict[str, Any]) -> EvaluationRun:
         average_latency_ms=row["average_latency_ms"],
         configuration=row["configuration"] or {},
         triggered_by=row["triggered_by"],
+        as_of=row["as_of"],
     )
