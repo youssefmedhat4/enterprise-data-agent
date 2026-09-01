@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.api.evaluation_routes import router as evaluation_router
 from app.api.knowledge_routes import router as knowledge_router
+from app.api.quality_routes import router as quality_router
 from app.api.routes import router
 from app.config import get_settings
 from app.errors import ApplicationError, ErrorCode, ErrorDetail, ErrorResponse
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(knowledge_router)
     app.include_router(evaluation_router)
+    app.include_router(quality_router)
     return app
 
 

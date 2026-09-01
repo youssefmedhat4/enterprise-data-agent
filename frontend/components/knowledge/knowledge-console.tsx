@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { EvaluationsPanel } from "@/components/knowledge/evaluations-panel";
+import { QualityPanel } from "@/components/knowledge/quality-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -255,6 +256,7 @@ export function KnowledgeConsole({
           <TabsTrigger value="metrics">Certified metrics</TabsTrigger>
           <TabsTrigger value="examples">Approved examples</TabsTrigger>
           <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
+          <TabsTrigger value="quality">Data quality</TabsTrigger>
         </TabsList>
 
         {/* --------------------------------------------------- data sources */}
@@ -704,6 +706,11 @@ export function KnowledgeConsole({
         {/* ---------------------------------------------------- evaluations */}
         <TabsContent value="evaluations" className="mt-4">
           <EvaluationsPanel dataSourceId={dataSourceId} />
+        </TabsContent>
+
+        {/* -------------------------------------------------- data quality */}
+        <TabsContent value="quality" className="mt-4">
+          <QualityPanel dataSourceId={dataSourceId} />
         </TabsContent>
       </Tabs>
     </section>

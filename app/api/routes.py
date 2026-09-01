@@ -28,6 +28,7 @@ from app.contracts.analytics import (
     AnalyticsRequest,
     AnalyticsResponse,
     ClarificationChoice,
+    DataQualityWarning,
     HealthResponse,
     InternalProvenance,
 )
@@ -38,6 +39,7 @@ from app.governance.factory import build_governance_gateway
 from app.governance.gateway import GovernanceGateway
 from app.knowledge.execution import DataSourceUnavailableError
 from app.knowledge.factory import build_metric_intent_planner
+from app.knowledge.quality import relevant_to
 from app.knowledge.runtime import KnowledgeRuntime, build_knowledge_runtime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.knowledge.triggers import CandidateTrigger
@@ -328,6 +330,38 @@ def _clarification_choices(result: Mapping[str, Any]) -> list[ClarificationChoic
     ]
 
 
+async def _data_quality_for(
+    knowledge: KnowledgeRuntime, data_source_id: UUID, tables: list[str]
+) -> list[DataQualityWarning]:
+    """Concerns about the tables this answer actually read.
+
+    Scoped to the tables in the answer's own provenance, because a payroll
+    question has no business carrying an invoice freshness warning however true
+    that warning is -- and a page that warns about everything is a page people
+    stop reading.
+
+    Never fails the request: an answer that is correct and unannotated is better
+    than no answer.
+    """
+    store = knowledge.quality
+    if store is None or not tables:
+        return []
+    try:
+        assertions = await store.assertions(data_source_id, enabled_only=True)
+        latest = await store.latest(data_source_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("quality lookup failed: %s", type(exc).__name__)
+        return []
+    return [
+        DataQualityWarning(
+            table=assertion.table_identifier,
+            status=result.status.value,
+            message=result.detail or f"{assertion.name} is {result.status.value}.",
+        )
+        for assertion, result in relevant_to(assertions, latest, set(tables))
+    ]
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -566,6 +600,9 @@ async def query_analytics(
         clarification_required=result.get("needs_clarification", False),
         clarification_question=result.get("clarification_question"),
         clarification_choices=_clarification_choices(result),
+        data_quality=await _data_quality_for(
+            knowledge, active_data_source_id, public_provenance.tables
+        ),
         warnings=result.get("warnings", []),
         execution=execution,
     )

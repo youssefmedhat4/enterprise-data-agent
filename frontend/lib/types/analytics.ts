@@ -184,8 +184,21 @@ export interface AnalyticsResponse {
   clarification_required: boolean;
   clarification_question: string | null;
   clarification_choices: ClarificationChoice[];
+  data_quality: DataQualityWarning[];
   warnings: string[];
   execution: ExecutionMetadata;
+}
+
+/**
+ * A concern about the data an answer was computed from.
+ *
+ * Produced by the backend from a measured check, never written by a model. The
+ * figures in the answer are unchanged; this says the data underneath may not be.
+ */
+export interface DataQualityWarning {
+  table: string;
+  status: string;
+  message: string;
 }
 
 /**

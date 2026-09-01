@@ -44,7 +44,9 @@ from app.knowledge.postgres_evidence import PostgresExecutionEvidenceStore
 from app.knowledge.postgres_guidance import PostgresGuidanceStore
 from app.knowledge.postgres_memory import PostgresQuestionMemory
 from app.knowledge.postgres_metrics import PostgresMetricRegistry
+from app.knowledge.postgres_quality import PostgresQualityStore
 from app.knowledge.postgres_semantics import PostgresSemanticRepository
+from app.knowledge.quality import InMemoryQualityStore, QualityStore
 from app.knowledge.retrieval import MetricRetriever
 from app.knowledge.seed import (
     DEFAULT_DATA_SOURCE_ID,
@@ -91,6 +93,8 @@ class KnowledgeRuntime:
     #: in-memory only: a benchmark that vanishes on restart cannot show a
     #: regression, which is the only thing it is for.
     evaluations: EvaluationStore | None
+    #: Reviewed assertions about whether the data itself is trustworthy.
+    quality: QualityStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -170,6 +174,7 @@ async def build_knowledge_runtime(
         jobs=PostgresGenerationJobQueue(pool),
         evidence=PostgresExecutionEvidenceStore(pool),
         evaluations=PostgresEvaluationStore(pool),
+        quality=PostgresQualityStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -197,6 +202,7 @@ async def _in_memory_runtime(
         jobs=None,
         evidence=InMemoryExecutionEvidenceStore(),
         evaluations=InMemoryEvaluationStore(),
+        quality=InMemoryQualityStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,

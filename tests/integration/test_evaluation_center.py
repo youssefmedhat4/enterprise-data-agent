@@ -286,3 +286,93 @@ async def test_an_uncomparable_expectation_is_refused_at_the_boundary(
         await runtime.close()
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_stale_table_warns_only_the_answers_that_read_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A correct query over stale data still produces a misleading answer.
+
+    The figures are untouched -- the query was right -- but the answer says
+    plainly that the table behind it stopped loading. And an assertion about a
+    table this answer never read attaches nothing, because a page that warns
+    about everything is a page people stop reading.
+    """
+    from app.knowledge.quality import (
+        AssertionType,
+        QualityAssertion,
+        QualityCheckResult,
+        QualityStatus,
+    )
+
+    monkeypatch.setenv("ALLOWED_CONNECTION_REFS", "EVAL_URL")
+    monkeypatch.setenv("EVAL_URL", "postgresql://ignored/evaluated")
+    settings = Settings()
+    database = _Gateway()
+    runtime = await _in_memory_runtime(settings, SOURCE)
+    runtime.execution = DataSourceRuntimeProvider(
+        settings,
+        registry=_Registry(),
+        gateway_factory=lambda _settings, **_kwargs: database,
+    )
+    read = QualityAssertion(
+        data_source_id=SOURCE,
+        name="Employee master freshness",
+        assertion_type=AssertionType.FRESHNESS,
+        schema_name="erp",
+        table_name="emp_mst",
+        column_name="loaded_at",
+        configuration={"max_age_minutes": 120},
+    )
+    unread = QualityAssertion(
+        data_source_id=SOURCE,
+        name="Invoice freshness",
+        assertion_type=AssertionType.FRESHNESS,
+        schema_name="erp",
+        table_name="ar_inv_hdr",
+        column_name="loaded_at",
+        configuration={"max_age_minutes": 120},
+    )
+    quality = runtime.quality
+    assert quality is not None
+    for assertion in (read, unread):
+        await quality.upsert(assertion)
+        await quality.record(
+            QualityCheckResult(
+                assertion_id=assertion.id,
+                data_source_id=SOURCE,
+                status=QualityStatus.STALE,
+                detail=f"{assertion.table_name} is 3.0 days old.",
+            )
+        )
+
+    app.dependency_overrides[get_knowledge_runtime] = lambda: runtime
+    app.dependency_overrides[get_database_gateway] = lambda: FakeDatabaseGateway()
+    app.dependency_overrides[get_llm_gateway] = lambda: _LLM()
+    app.dependency_overrides[get_authorization_gateway] = lambda: _AllowAll()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/analytics/query",
+                json={
+                    "question": "How many active employees do we have?",
+                    "data_source_id": str(SOURCE),
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+        await runtime.close()
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # The number is untouched: the query was correct.
+    assert body["rows"] == [{"active_employee_count": 42}]
+    warnings = body["data_quality"]
+    assert [item["table"] for item in warnings] == ["erp.emp_mst"], (
+        "an unrelated table's warning was attached, or a relevant one was not"
+    )
+    assert warnings[0]["status"] == "STALE"
+    assert "3.0 days" in warnings[0]["message"]

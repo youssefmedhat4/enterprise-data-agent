@@ -329,6 +329,20 @@ class ClarificationChoice(StrictContract):
     label: str
 
 
+class DataQualityWarning(StrictContract):
+    """A concern about the data an answer was computed from.
+
+    Produced by the backend from a measured check, never written by a model:
+    a fabricated warning is as damaging as a fabricated number, and harder to
+    notice. The figures in the answer are unchanged -- the query was correct,
+    and this says the data underneath may not be.
+    """
+
+    table: str
+    status: str
+    message: str
+
+
 class AnalyticsResponse(StrictContract):
     # 1.1 widened `chart` from the original four fixed types to the AI-selected
     # visualization contract above. See ADR 0012.
@@ -354,6 +368,9 @@ class AnalyticsResponse(StrictContract):
     #: them rather than making the user retype one. Business identifiers and
     #: labels only -- never the table or column they came from.
     clarification_choices: list[ClarificationChoice] = Field(default_factory=list)
+    #: Only about tables this answer actually read. Attaching every warning
+    #: to every answer teaches people to ignore all of them.
+    data_quality: list[DataQualityWarning] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     execution: ExecutionMetadata
 

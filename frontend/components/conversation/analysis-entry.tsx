@@ -164,6 +164,30 @@ export function AnalysisEntry({
         </motion.div>
       )}
 
+      {/* What the backend measured about the data behind this answer. The
+          numbers above are unchanged: the query was correct, and this says the
+          data underneath may not be. Never model-written. */}
+      {response.data_quality.length > 0 ? (
+        <motion.ul variants={revealChild} className="space-y-1.5">
+          {response.data_quality.map((warning) => (
+            <li
+              key={`${warning.table}-${warning.message}`}
+              className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-[13px]"
+            >
+              <TriangleAlert
+                className="mt-0.5 size-3.5 shrink-0 text-warning"
+                aria-hidden="true"
+              />
+              <span>
+                <span className="font-medium">Data quality</span>
+                <span className="text-muted-foreground"> · {warning.table}</span>
+                <span className="block text-muted-foreground">{warning.message}</span>
+              </span>
+            </li>
+          ))}
+        </motion.ul>
+      ) : null}
+
       {response.warnings.length > 0 ? (
         <motion.ul variants={revealChild} className="space-y-1.5">
           {response.warnings.map((warning) => (
