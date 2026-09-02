@@ -20,6 +20,7 @@ from app.main import create_app
 ADMIN_ROUTES = [
     "/knowledge/data-sources",
     f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/semantics",
+    f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/column-previews",
     f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/clusters",
     f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/candidates",
     f"/knowledge/data-sources/{DEFAULT_DATA_SOURCE_ID}/metrics",

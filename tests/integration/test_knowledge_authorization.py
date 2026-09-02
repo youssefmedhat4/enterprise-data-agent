@@ -73,6 +73,7 @@ async def runtime():  # type: ignore[no-untyped-def]
     [
         "candidates",
         "semantics",
+        "column-previews",
         "clusters",
         "metrics",
         "examples",

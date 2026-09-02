@@ -37,10 +37,8 @@ import {
   StatusBadge,
   toneForStatus,
 } from "@/components/knowledge/shell/primitives";
-import {
-  CandidateCard,
-  SchemaProposalCard,
-} from "@/components/knowledge/shell/review-card";
+import { CandidateCard } from "@/components/knowledge/shell/review-card";
+import { SchemaReview } from "@/components/knowledge/shell/schema-review";
 import { TimePanel } from "@/components/knowledge/time-panel";
 import { Button } from "@/components/ui/button";
 import { DUR, EASE_ENTRANCE } from "@/lib/motion";
@@ -53,6 +51,7 @@ import {
   fetchCandidates,
   fetchCertifiedMetrics,
   fetchClusters,
+  fetchColumnPreviews,
   fetchConnectionRefs,
   fetchQueryExamples,
   fetchSemantics,
@@ -111,6 +110,8 @@ export function KnowledgeConsole({
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [previews, setPreviews] = useState<Record<string, string[]>>({});
+  const [previewsFor, setPreviewsFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -147,6 +148,24 @@ export function KnowledgeConsole({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setPreviews({});
+    setPreviewsFor(null);
+  }, [dataSourceId]);
+
+  /**
+   * Example values are fetched only once schema review is actually open.
+   *
+   * They cost a connection and a bounded read of the datasource, which is
+   * worth it for the person deciding what a column means and worth nothing to
+   * anyone looking at certified metrics.
+   */
+  useEffect(() => {
+    if (section !== "review" || previewsFor === dataSourceId) return;
+    setPreviewsFor(dataSourceId);
+    void fetchColumnPreviews(dataSourceId).then(setPreviews);
+  }, [dataSourceId, previewsFor, section]);
 
   useEffect(() => {
     void fetchConnectionRefs().then((refs) => {
@@ -186,6 +205,41 @@ export function KnowledgeConsole({
         action === "approve" && corrected ? corrected : undefined,
       );
       setNotice(result.message);
+      setBusyId(null);
+      await load();
+    },
+    [dataSourceId, editing, load],
+  );
+
+  /**
+   * Approve a set the reviewer picked, one call each.
+   *
+   * Deliberately not a batch endpoint: every approval goes through the same
+   * route, the same authority check and the same validation as a single one,
+   * so selecting several is a convenience for the reviewer and never a
+   * different kind of decision.
+   */
+  const approveMany = useCallback(
+    async (ids: readonly string[]) => {
+      setBusyId("bulk");
+      let approved = 0;
+      for (const id of ids) {
+        const corrected = editing[id]?.trim();
+        const result = await reviewSemantic(
+          dataSourceId,
+          id,
+          "approve",
+          corrected ? corrected : undefined,
+        );
+        if (result.ok) approved += 1;
+      }
+      setNotice(
+        "Confirmed " +
+          approved +
+          " of " +
+          ids.length +
+          (ids.length === 1 ? " proposal." : " proposals."),
+      );
       setBusyId(null);
       await load();
     },
@@ -524,35 +578,22 @@ export function KnowledgeConsole({
                 <SectionHeader
                   title="Schema review"
                   count={proposals.length}
-                  description="Each proposal reads a physical table or column and suggests what it means in business terms. Approve it, or correct the name first — the corrected name is what questions are then understood against."
+                  description="Each proposal reads one table or column and suggests what it means in business terms. Approve it, or rename it first — the name you save is what questions are then understood against."
                 />
                 {loading ? (
                   <SkeletonList />
-                ) : proposals.length === 0 ? (
-                  <EmptyState
-                    icon={Shapes}
-                    title="Nothing awaiting review"
-                    description="Scan a data source to discover what its tables mean. Proposals appear here for a person to confirm."
-                  />
                 ) : (
-                  <div className="space-y-4">
-                    {proposals.map((proposal) => (
-                      <SchemaProposalCard
-                        key={proposal.id}
-                        proposal={proposal}
-                        draft={editing[proposal.id] ?? ""}
-                        busy={busyId === proposal.id}
-                        onDraftChange={(value) =>
-                          setEditing((current) => ({
-                            ...current,
-                            [proposal.id]: value,
-                          }))
-                        }
-                        onApprove={() => void reviewMapping(proposal.id, "approve")}
-                        onReject={() => void reviewMapping(proposal.id, "reject")}
-                      />
-                    ))}
-                  </div>
+                  <SchemaReview
+                    proposals={proposals}
+                    previews={previews}
+                    drafts={editing}
+                    busyId={busyId}
+                    onDraftChange={(id, value) =>
+                      setEditing((current) => ({ ...current, [id]: value }))
+                    }
+                    onReview={(id, action) => void reviewMapping(id, action)}
+                    onApproveMany={approveMany}
+                  />
                 )}
               </SectionTransition>
             </TabsPrimitive.Content>

@@ -15,6 +15,46 @@ const ENTITY_PROPOSAL = {
   confidence: 0.97,
   status: "PROPOSED",
   detail: "",
+  entity_name: "Employee",
+  schema_name: "analytics",
+  table_name: "staff",
+};
+
+const ARABIC_NAME = {
+  id: "44444444-4444-4444-4444-444444444444",
+  kind: "attribute",
+  physical: "analytics.staff.arabic_name",
+  proposed_concept: "Arabic Name",
+  confidence: 0.9,
+  status: "PROPOSED",
+  detail: "",
+  entity_name: "Employee",
+  schema_name: "analytics",
+  table_name: "staff",
+  column_name: "arabic_name",
+  data_type: "text",
+  is_identifier: false,
+};
+
+const STAFF_NUMBER = {
+  ...ARABIC_NAME,
+  id: "55555555-5555-5555-5555-555555555555",
+  physical: "analytics.staff.staff_no",
+  proposed_concept: "Employee ID",
+  column_name: "staff_no",
+  is_identifier: true,
+};
+
+const REPORTS_TO = {
+  id: "66666666-6666-6666-6666-666666666666",
+  kind: "relationship",
+  physical: "staff.dept_id -> departments.dept_id",
+  proposed_concept: "belongs to",
+  confidence: 0.88,
+  status: "PROPOSED",
+  detail: "many_to_one",
+  from_entity: "Employee",
+  to_entity: "Department",
 };
 
 const STALE_MAPPING = {
@@ -38,7 +78,11 @@ const CONFIRMED_MAPPING = {
 };
 
 /** Records every request so tests can assert what the UI actually sent. */
-function mockApi(semantics: unknown[] = [], status = 200) {
+function mockApi(
+  semantics: unknown[] = [],
+  status = 200,
+  previews: unknown[] = [],
+) {
   const calls: Array<{ url: string; method: string; body: unknown }> = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({
@@ -51,6 +95,9 @@ function mockApi(semantics: unknown[] = [], status = 200) {
     }
     if (url.includes("/connection-refs")) {
       return { ok: true, status: 200, json: async () => ["DATABASE_URL"] };
+    }
+    if (url.includes("/column-previews")) {
+      return { ok: true, status: 200, json: async () => previews };
     }
     if (url.includes("/semantics") && (init?.method ?? "GET") === "GET") {
       return { ok: true, status: 200, json: async () => semantics };
@@ -78,23 +125,99 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * Schema review is where a person who does not read database notation has to
+ * decide what a column means. These pin the parts of the screen that make that
+ * possible: the concept leads, the physical path is still there but demoted,
+ * and the sample values are labelled as examples rather than as the set of
+ * values a column can hold.
+ */
 describe("Schema review", () => {
-  it("renders a proposal with its physical source and confidence", async () => {
-    mockApi([ENTITY_PROPOSAL]);
+  async function openReview() {
+    await userEvent.click(await screen.findByRole("tab", { name: /Schema review/ }));
+  }
+
+  it("leads with the concept and keeps the column path available", async () => {
+    mockApi([ARABIC_NAME]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Schema review/ }));
+    await openReview();
 
-    expect(await screen.findByText("Employee")).toBeTruthy();
-    expect(screen.getByText("analytics.staff")).toBeTruthy();
-    expect(screen.getByText("97%")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Arabic Name" })).toBeTruthy();
+    // The kind is explicit, while the open Employee group supplies its owner.
+    expect(screen.getByText("ATTRIBUTE")).toBeTruthy();
+    // Demoted, never removed.
+    expect(screen.getByText("analytics.staff.arabic_name")).toBeTruthy();
+  });
+
+  it("groups attributes under the concept they belong to", async () => {
+    mockApi([ENTITY_PROPOSAL, ARABIC_NAME, STAFF_NUMBER]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+
+    const group = await screen.findByRole("button", {
+      name: "Employee, 3 proposals",
+    });
+    expect(group.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "Arabic Name" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Employee ID" })).toBeTruthy();
+  });
+
+  it("marks the canonical key and explains what one is", async () => {
+    mockApi([STAFF_NUMBER]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+
+    expect(await screen.findByText("Canonical key")).toBeTruthy();
+    expect(screen.getByLabelText("What a canonical key is")).toBeTruthy();
+  });
+
+  it("reads a relationship as two concepts rather than as a join", async () => {
+    mockApi([REPORTS_TO]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+
+    const heading = await screen.findByRole("heading", {
+      name: /Employee belongs to Department/,
+    });
+    expect(heading).toBeTruthy();
+    expect(screen.getByText("staff.dept_id -> departments.dept_id")).toBeTruthy();
+  });
+
+  it("shows a bounded sample, labelled as examples", async () => {
+    mockApi(
+      [ARABIC_NAME],
+      200,
+      [{ column: "analytics.staff.arabic_name", values: ["\u0623\u062d\u0645\u062f", "\u0633\u0627\u0631\u0629"] }],
+    );
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+
+    expect(await screen.findByText("\u0623\u062d\u0645\u062f")).toBeTruthy();
+    expect(screen.getByText("Example values")).toBeTruthy();
+    // Never described as the values the column can hold.
+    expect(screen.queryByText(/possible values/i)).toBeNull();
+    expect(screen.queryByText(/all values/i)).toBeNull();
+  });
+
+  it("says so when no safe sample is available", async () => {
+    mockApi([ARABIC_NAME]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+
+    expect(await screen.findByText("No preview available")).toBeTruthy();
   });
 
   it("approving sends the decision to the backend", async () => {
-    const calls = mockApi([ENTITY_PROPOSAL]);
+    const calls = mockApi([ARABIC_NAME]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Schema review/ }));
+    await openReview();
     await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => {
@@ -106,14 +229,15 @@ describe("Schema review", () => {
     });
   });
 
-  it("an edited name is sent with the approval", async () => {
-    const calls = mockApi([ENTITY_PROPOSAL]);
+  it("a renamed meaning is sent with the approval", async () => {
+    const calls = mockApi([ARABIC_NAME]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Schema review/ }));
+    await openReview();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
     await userEvent.type(
-      await screen.findByLabelText(/Corrected meaning/),
-      "Staff Member",
+      await screen.findByLabelText(/Business meaning/),
+      "Name in Arabic",
     );
     await userEvent.click(screen.getByRole("button", { name: /Save & approve/ }));
 
@@ -122,16 +246,16 @@ describe("Schema review", () => {
         (call) => call.method === "POST" && call.url.includes("/semantics/"),
       );
       expect((review?.body as { concept_name: string }).concept_name).toBe(
-        "Staff Member",
+        "Name in Arabic",
       );
     });
   });
 
   it("rejecting sends a reject decision", async () => {
-    const calls = mockApi([ENTITY_PROPOSAL]);
+    const calls = mockApi([ARABIC_NAME]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Schema review/ }));
+    await openReview();
     await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
 
     await waitFor(() => {
@@ -140,6 +264,47 @@ describe("Schema review", () => {
       );
       expect((review?.body as { action: string }).action).toBe("reject");
     });
+  });
+
+  it("approves a selected set one proposal at a time", async () => {
+    const calls = mockApi([ARABIC_NAME, STAFF_NUMBER]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+    await userEvent.click(
+      await screen.findByLabelText("Select Arabic Name for bulk approval"),
+    );
+    await userEvent.click(
+      screen.getByLabelText("Select Employee ID for bulk approval"),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Approve selected/ }),
+    );
+
+    await waitFor(() => {
+      const reviews = calls.filter(
+        (call) => call.method === "POST" && call.url.includes("/semantics/"),
+      );
+      // One request per proposal: bulk selection is a convenience, never a
+      // different kind of decision.
+      expect(reviews).toHaveLength(2);
+      expect(
+        reviews.every(
+          (call) => (call.body as { action: string }).action === "approve",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("offers no way to approve everything at once", async () => {
+    mockApi([ARABIC_NAME, STAFF_NUMBER]);
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await openReview();
+    await screen.findByRole("heading", { name: "Arabic Name" });
+
+    expect(screen.queryByRole("button", { name: /approve all/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /select all/i })).toBeNull();
   });
 });
 

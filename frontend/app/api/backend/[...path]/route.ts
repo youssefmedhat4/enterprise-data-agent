@@ -38,6 +38,7 @@ const KNOWLEDGE_PATHS = [
   `knowledge/data-sources`,
   `knowledge/data-sources/${ID}/(semantics|clusters|candidates|metrics|examples|scan|reindex)`,
   `knowledge/data-sources/${ID}/(semantics|candidates)/${ID}/review`,
+  `knowledge/data-sources/${ID}/column-previews`,
   `knowledge/data-sources/${ID}/quality`,
   `knowledge/data-sources/${ID}/quality/run`,
   `knowledge/data-sources/${ID}/quality/${ID}/toggle`,

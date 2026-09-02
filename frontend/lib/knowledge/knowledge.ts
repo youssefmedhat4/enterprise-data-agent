@@ -204,11 +204,26 @@ export async function reviewCandidate(
 export interface SemanticProposal {
   id: string;
   kind: "entity" | "attribute" | "relationship";
+  /** Fully qualified `schema.table.column`, kept for the technical view. */
   physical: string;
   proposedConcept: string;
   confidence: number | null;
   status: ApprovalStatus;
   detail: string;
+  /** The concept this sits under: an entity names itself, an attribute its owner. */
+  entityName: string | null;
+  schemaName: string | null;
+  tableName: string | null;
+  columnName: string | null;
+  dataType: string | null;
+  /** The attribute that distinguishes one instance of the entity from another. */
+  isIdentifier: boolean;
+  fromEntity: string | null;
+  toEntity: string | null;
+}
+
+function optional(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 export function fetchSemantics(dataSourceId: string): Promise<SemanticProposal[]> {
@@ -220,7 +235,46 @@ export function fetchSemantics(dataSourceId: string): Promise<SemanticProposal[]
     confidence: typeof raw.confidence === "number" ? raw.confidence : null,
     status: str(raw.status, "PROPOSED") as ApprovalStatus,
     detail: str(raw.detail),
+    entityName: optional(raw.entity_name),
+    schemaName: optional(raw.schema_name),
+    tableName: optional(raw.table_name),
+    columnName: optional(raw.column_name),
+    dataType: optional(raw.data_type),
+    isIdentifier: raw.is_identifier === true,
+    fromEntity: optional(raw.from_entity),
+    toEntity: optional(raw.to_entity),
   }));
+}
+
+/**
+ * A few example values per column, keyed by `schema.table.column`.
+ *
+ * Strictly an aid to reading a column, and entirely optional: the backend
+ * returns nothing for a column its discovery limits exclude, and a datasource
+ * that cannot be reached simply yields no previews rather than an error the
+ * reviewer has to dismiss before they can work.
+ */
+export async function fetchColumnPreviews(
+  dataSourceId: string,
+): Promise<Record<string, string[]>> {
+  try {
+    const rows = await get(
+      `/data-sources/${dataSourceId}/column-previews`,
+      (raw: Record<string, unknown>) => ({
+        column: str(raw.column),
+        values: Array.isArray(raw.values)
+          ? raw.values.map((item) => str(item)).filter(Boolean).slice(0, 5)
+          : [],
+      }),
+    );
+    return Object.fromEntries(
+      rows
+        .filter((row) => row.column !== "" && row.values.length > 0)
+        .map((row) => [row.column, row.values]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 /**

@@ -22,14 +22,25 @@ from app.api.routes import (
     get_authenticated_identity,
     get_authorization_gateway,
     get_database_gateway,
+    get_governance_gateway,
     get_knowledge_runtime,
 )
 from app.authentication.gateway import UserIdentity
-from app.authorization.gateway import AuthorizationGateway, build_authorization_request
+from app.authorization.gateway import (
+    AuthorizationGateway,
+    build_authorization_request,
+    filter_authorized_schema,
+)
 from app.config import Settings, get_settings
 from app.data.gateway import DatabaseGateway, TableMetadata
+from app.governance.gateway import (
+    GovernanceGateway,
+    GovernanceSnapshot,
+    filter_authorized_governance,
+)
 from app.knowledge.candidates import CandidateStatus
 from app.knowledge.contracts import ApprovalStatus, DataSourceStatus
+from app.knowledge.discovery import SemanticModel
 from app.knowledge.runtime import KnowledgeRuntime
 from app.knowledge.seed import DEFAULT_DATA_SOURCE_ID
 from app.llm.profiles import DEFAULT_MODEL_PROFILE
@@ -67,6 +78,15 @@ class DataSourceSummary(StrictPayload):
 
 
 class SemanticProposalView(StrictPayload):
+    """One proposal, described in business terms with the physical facts kept.
+
+    `physical` remains the fully qualified path because it is what a reviewer
+    needs when they do want to check the database. The named parts beside it
+    exist so a reviewer who does *not* read `analytics.employees.arabic_name`
+    can still be shown which concept an attribute belongs to and what it is
+    called, without the client having to take a string apart to find out.
+    """
+
     id: UUID
     kind: str
     physical: str
@@ -74,6 +94,25 @@ class SemanticProposalView(StrictPayload):
     confidence: float | None = None
     status: ApprovalStatus
     detail: str = ""
+    #: The business concept this proposal sits under: an entity names itself,
+    #: an attribute names its owner, a relationship names neither.
+    entity_name: str | None = None
+    schema_name: str | None = None
+    table_name: str | None = None
+    column_name: str | None = None
+    data_type: str | None = None
+    #: The stable identifier that distinguishes one instance of the entity
+    #: from another. Comes from the scan, never from how a client renders it.
+    is_identifier: bool = False
+    from_entity: str | None = None
+    to_entity: str | None = None
+
+
+class ColumnPreviewView(StrictPayload):
+    """A handful of values from one column, to help a person read it."""
+
+    column: str
+    values: list[str]
 
 
 class ReviewDecision(StrictPayload):
@@ -531,6 +570,9 @@ async def list_semantics(
                 confidence=entity.confidence,
                 status=entity.status,
                 detail=entity.description or "",
+                entity_name=entity.entity_name,
+                schema_name=entity.source_schema,
+                table_name=entity.source_table,
             )
         )
     for attribute in model.attributes:
@@ -548,7 +590,15 @@ async def list_semantics(
                 proposed_concept=attribute.concept_name,
                 confidence=attribute.confidence,
                 status=attribute.status,
-                detail="canonical key" if attribute.is_identifier else "",
+                # Was the literal string "canonical key", which a client had to
+                # match on to learn a fact the model already holds as a flag.
+                detail=attribute.description or "",
+                entity_name=owner.entity_name if owner is not None else None,
+                schema_name=owner.source_schema if owner is not None else None,
+                table_name=owner.source_table if owner is not None else None,
+                column_name=attribute.source_column,
+                data_type=attribute.data_type,
+                is_identifier=attribute.is_identifier,
             )
         )
     for relationship in model.relationships:
@@ -568,11 +618,192 @@ async def list_semantics(
                 confidence=relationship.confidence,
                 status=relationship.status,
                 detail=relationship.cardinality or "",
+                from_entity=source.entity_name if source is not None else None,
+                to_entity=target.entity_name if target is not None else None,
+                schema_name=source.source_schema if source is not None else None,
+                table_name=source.source_table if source is not None else None,
+                column_name=relationship.from_column,
             )
         )
     if status is not None:
         views = [view for view in views if view.status is status]
     return views
+
+
+#: How many values a reviewer is shown per column. The gateway already caps
+#: how many it will read; this caps how many are worth looking at.
+MAX_PREVIEW_VALUES = 5
+
+
+@router.get("/data-sources/{data_source_id}/column-previews")
+async def list_column_previews(
+    data_source_id: UUID,
+    identity: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
+    authorization_gateway: Annotated[
+        AuthorizationGateway, Depends(get_authorization_gateway)
+    ],
+    governance_gateway: Annotated[
+        GovernanceGateway, Depends(get_governance_gateway)
+    ],
+    knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> list[ColumnPreviewView]:
+    """A few example values for the columns currently under review.
+
+    A reviewer deciding that `arabic_name` means "Arabic Name" is guessing from
+    a column name unless they can see what is actually in it. This shows them,
+    and nothing more than that.
+
+    Physical metadata is discovered without row samples first. OPA then limits
+    the datasource-specific table and column scope, and OpenMetadata sensitivity
+    classifications remove fields that should not be previewed. Only after those
+    decisions does a second gateway read at most five distinct, short values.
+    A higher-cardinality column returns no preview rather than becoming a row
+    browser.
+    """
+    from app.data.factory import build_database_gateway_for
+    from app.knowledge.datasources import (
+        DataSourceConnectionResolver,
+        DataSourceError,
+    )
+
+    if knowledge.data_sources is None or knowledge.semantics is None:
+        return []
+    source = await knowledge.data_sources.get(data_source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="No such datasource.")
+
+    try:
+        resolver = DataSourceConnectionResolver(settings)
+        database_url = resolver.resolve(source.connection_ref)
+        metadata_gateway = build_database_gateway_for(
+            settings.model_copy(update={"database_categorical_max_values": 0}),
+            database_url=database_url,
+            allowed_schemas=source.allowed_schemas,
+            database_type=source.database_type,
+        )
+    except DataSourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The datasource connection could not be prepared "
+                f"({type(exc).__name__})."
+            ),
+        ) from exc
+
+    tables = await _read_preview_schema(metadata_gateway)
+    decision = await authorization_gateway.authorize(
+        build_authorization_request(identity=identity, tables=tables, metrics=())
+    )
+    authorized = filter_authorized_schema(tables, decision)
+    if not decision.allowed or not authorized:
+        return []
+
+    try:
+        governance = filter_authorized_governance(
+            await governance_gateway.get_metadata(authorized), authorized
+        )
+    finally:
+        await governance_gateway.close()
+
+    model = await knowledge.semantics.load(data_source_id)
+    wanted = _previewable_columns(model, authorized, governance)
+    if not wanted:
+        return []
+
+    try:
+        preview_gateway = build_database_gateway_for(
+            settings.model_copy(
+                update={"database_categorical_max_values": MAX_PREVIEW_VALUES}
+            ),
+            database_url=database_url,
+            allowed_schemas=source.allowed_schemas,
+            sample_columns=tuple(sorted(wanted)),
+            database_type=source.database_type,
+        )
+    except DataSourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        # Type only. A connection string can appear in a driver message, and
+        # this endpoint must never echo one back.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The datasource connection could not be prepared "
+                f"({type(exc).__name__})."
+            ),
+        ) from exc
+
+    tables = await _read_preview_schema(preview_gateway)
+
+    previews: list[ColumnPreviewView] = []
+    for table in tables:
+        for column in table.column_metadata:
+            qualified = f"{table.schema_name}.{table.table_name}.{column.name}"
+            # Belt and braces: the gateway was told which columns it may
+            # sample, and only those are returned even if that ever changes.
+            if qualified not in wanted or not column.observed_values:
+                continue
+            previews.append(
+                ColumnPreviewView(
+                    column=qualified,
+                    values=list(column.observed_values[:MAX_PREVIEW_VALUES]),
+                )
+            )
+    return sorted(previews, key=lambda preview: preview.column)
+
+
+async def _read_preview_schema(gateway: DatabaseGateway) -> list[TableMetadata]:
+    """Read metadata and always release the short-lived datasource gateway."""
+    try:
+        return await gateway.search_schema("")
+    except Exception as exc:
+        # Type only: a driver message can contain a DSN.
+        raise HTTPException(
+            status_code=502,
+            detail=f"The datasource could not be read ({type(exc).__name__}).",
+        ) from exc
+    finally:
+        await gateway.close()
+
+
+def _previewable_columns(
+    model: SemanticModel,
+    authorized_tables: list[TableMetadata],
+    governance: GovernanceSnapshot,
+) -> set[str]:
+    """Proposed, authorized, non-sensitive columns eligible for a preview."""
+    allowed = {
+        table.identifier: set(table.columns) for table in authorized_tables
+    }
+    entities = {entity.id: entity for entity in model.entities}
+    wanted: set[str] = set()
+    for attribute in model.attributes:
+        if attribute.status is not ApprovalStatus.PROPOSED:
+            continue
+        owner = entities.get(attribute.entity_id)
+        if owner is None:
+            continue
+        table_id = f"{owner.source_schema}.{owner.source_table}"
+        if attribute.source_column not in allowed.get(table_id, set()):
+            continue
+        governed_table = governance.tables.get(table_id)
+        governed_column = (
+            governed_table.columns.get(attribute.source_column)
+            if governed_table is not None
+            else None
+        )
+        if (
+            governed_table is not None
+            and governed_table.sensitivity
+            or governed_column is not None
+            and governed_column.sensitivity
+        ):
+            continue
+        wanted.add(f"{table_id}.{attribute.source_column}")
+    return wanted
 
 
 @router.post("/data-sources/{data_source_id}/semantics/{proposal_id}/review")
