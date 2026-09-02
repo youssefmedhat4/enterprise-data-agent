@@ -682,7 +682,14 @@ async def review_candidate(
     identity: Annotated[UserIdentity, Depends(require_knowledge_reviewer)],
     knowledge: Annotated[KnowledgeRuntime, Depends(get_knowledge_runtime)],
 ) -> CandidateView:
-    """Approve or reject a candidate. Approval runs full validation."""
+    """Approve or reject a candidate. Approval runs full validation.
+
+    A candidate cannot be edited through this route. The payload shape is
+    shared with semantic review, where editing means approving under a
+    corrected name, so `edit` parses here too and used to fall through to the
+    approve branch -- an unsupported action silently becoming an approval,
+    which is the wrong direction to fail.
+    """
     from app.knowledge.candidates import CandidateReview, CandidateReviewError
 
     store = knowledge.candidates
@@ -690,6 +697,14 @@ async def review_candidate(
     if store is None or registry is None:
         raise HTTPException(status_code=404, detail="No candidate to review.")
 
+    if decision.action == "edit":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "A candidate cannot be edited here. Approve it as proposed, or "
+                "reject it with a reason."
+            ),
+        )
     review = CandidateReview(
         store=store,
         registry=registry,

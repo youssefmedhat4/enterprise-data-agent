@@ -1,7 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { PanelLeftClose, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { BookMarked, MessagesSquare, PanelLeftClose, Plus, Trash2 } from "lucide-react";
 
 
 import { SystemStatus } from "@/components/layout/system-status";
@@ -31,6 +33,12 @@ import { cn } from "@/lib/utils";
 const RAIL_W = 56;
 const PANEL_W = 252;
 
+/** Where the rail can take you. Reviewing is a separate job from asking. */
+const DESTINATIONS = [
+  { href: "/", label: "Workspace", icon: MessagesSquare },
+  { href: "/knowledge", label: "Knowledge", icon: BookMarked },
+] as const;
+
 interface RailProps {
   threads: ThreadSummary[];
   activeThreadId: string | null;
@@ -56,6 +64,7 @@ export function Rail({
   variant = "rail",
 }: RailProps) {
   const isDrawer = variant === "drawer";
+  const pathname = usePathname();
   const open = isDrawer || expanded;
   const groups = groupThreads(threads);
 
@@ -172,6 +181,69 @@ export function Rail({
           )}
         </Tooltip>
       </div>
+
+      {/* Destinations. The knowledge area was reachable only by typing its
+          URL: the route existed, the console existed, and nothing linked to
+          it, so the review queue was invisible to the person meant to work
+          it. Whether its contents are permitted is still decided by the
+          backend -- an unauthorized reviewer sees the page explain that. */}
+      <nav aria-label="Sections" className="px-2 pb-2">
+        <ul className="space-y-px">
+          {DESTINATIONS.map((destination) => {
+            const active =
+              destination.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(destination.href);
+            const Icon = destination.icon;
+            return (
+              <li key={destination.href}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={destination.href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "relative flex h-9 w-full items-center gap-2.5 rounded-lg text-[13px] transition-colors",
+                        active
+                          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                        open ? "px-2.5" : "justify-center px-0",
+                      )}
+                    >
+                      {active ? (
+                        <motion.span
+                          layoutId="destination-active"
+                          transition={SPRING}
+                          aria-hidden="true"
+                          className="absolute inset-y-1.5 start-0 w-[2px] rounded-full bg-primary"
+                        />
+                      ) : null}
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <AnimatePresence initial={false}>
+                        {open ? (
+                          <motion.span
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: DUR.fast }}
+                            className="truncate"
+                          >
+                            {destination.label}
+                          </motion.span>
+                        ) : null}
+                      </AnimatePresence>
+                      <span className="sr-only">{open ? "" : destination.label}</span>
+                    </Link>
+                  </TooltipTrigger>
+                  {open ? null : (
+                    <TooltipContent side="right">{destination.label}</TooltipContent>
+                  )}
+                </Tooltip>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
       {/* Recent analyses */}
       <nav
