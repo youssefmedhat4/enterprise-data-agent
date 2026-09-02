@@ -543,3 +543,103 @@ def test_a_metric_binding_overrides_which_column_is_chosen() -> None:
         metric_dimension_id=closed.id,
     )
     assert bound.dimension is closed
+
+
+# --- fiscal calendar boundaries ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("month", "day"),
+    [
+        (1, 1),    # the common case
+        (1, 31),   # January has 31 days
+        (4, 30),   # April has 30
+        (7, 1),    # the Legacy ERP calendar
+        (7, 31),   # July has 31
+        (2, 28),   # the last day February always has
+        (12, 31),
+    ],
+)
+def test_a_real_fiscal_start_is_accepted(month: int, day: int) -> None:
+    """Refusing 31 July turns a real calendar into one nobody can express."""
+    from app.timeintel.policy import validate_fiscal_start
+
+    assert validate_fiscal_start(month, day) == (month, day)
+
+
+@pytest.mark.parametrize(
+    ("month", "day"),
+    [
+        (4, 31),   # April has 30
+        (2, 30),   # February never has 30
+        (6, 31),
+        (9, 31),
+        (11, 31),
+        (1, 0),
+        (1, 32),
+        (0, 1),
+        (13, 1),
+    ],
+)
+def test_a_date_that_does_not_exist_is_refused(month: int, day: int) -> None:
+    from app.timeintel.policy import validate_fiscal_start
+
+    with pytest.raises(TimePolicyError):
+        validate_fiscal_start(month, day)
+
+
+def test_the_twenty_ninth_of_february_is_refused_with_a_reason() -> None:
+    """Three years in four have no such date.
+
+    Sliding to the 28th, to 1 March, or to the nearest weekday would each be
+    this system inventing a company's accounting calendar, which is the failure
+    the whole design exists to prevent.
+    """
+    from app.timeintel.policy import validate_fiscal_start
+
+    with pytest.raises(TimePolicyError, match="29 February"):
+        validate_fiscal_start(2, 29)
+
+
+def test_a_policy_rejects_an_impossible_calendar_on_construction() -> None:
+    with pytest.raises(TimePolicyError):
+        TimePolicy(
+            data_source_id=SOURCE,
+            fiscal_year_start_month=4,
+            fiscal_year_start_day=31,
+        )
+
+
+def test_a_july_31_fiscal_year_resolves_on_the_right_day() -> None:
+    """The anchor is 1 September, so this fiscal year began on 31 July."""
+    plan = resolve(
+        TimeIntent(period=PeriodType.FISCAL_YEAR_TO_DATE),
+        _policy(fiscal_month=7, fiscal_day=31),
+        clock=CLOCK,
+    )
+
+    assert _local(plan.primary.start) == "2026-07-31 00:00"
+    assert _local(plan.primary.end) == "2026-09-01 12:00"
+
+
+def test_a_fiscal_year_starting_late_in_a_month_still_tiles() -> None:
+    """Consecutive fiscal years meet exactly, with no gap and no overlap.
+
+    30 April is also a daylight-saving trap in Cairo: Egypt springs forward on
+    the last Friday of April, which in 2027 is the 30th, so local midnight that
+    day does not exist at all. The boundary lands on the first instant of the
+    day that does exist rather than skipping or duplicating a day, and the two
+    fiscal years still meet exactly -- which is the property that matters, and
+    the one a fixed-offset implementation would quietly break.
+    """
+    policy = _policy(fiscal_month=4, fiscal_day=30)
+    current = resolve(TimeIntent(period=PeriodType.FISCAL_YEAR), policy, clock=CLOCK)
+    previous = resolve(
+        TimeIntent(period=PeriodType.LAST_FISCAL_YEAR), policy, clock=CLOCK
+    )
+
+    assert previous.primary.end == current.primary.start
+    assert _local(current.primary.start) == "2026-04-30 00:00"
+    # 2027-04-30 00:00 Cairo is inside the spring-forward gap.
+    assert _local(current.primary.end) == "2027-04-30 01:00"
+    assert current.primary.end > current.primary.start

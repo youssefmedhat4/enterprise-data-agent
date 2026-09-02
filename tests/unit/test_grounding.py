@@ -243,14 +243,23 @@ def test_null_ranking_and_percentage_evidence_are_supported() -> None:
 
 
 def _rows(count: int) -> list[dict[str, object]]:
-    return [{"emp_no": 1000 + index, "emp_nm": f"E{index}"} for index in range(count)]
+    """Rows whose values contain no small integers.
+
+    Names are spelled out rather than numbered: a fixture of "E0".."E41"
+    contains the digits 41, so an off-by-one assertion would be testing that
+    the harvester ignores a number the result genuinely holds.
+    """
+    return [
+        {"emp_no": 100000 + index, "emp_nm": f"Employee {chr(65 + index % 26)}"}
+        for index in range(count)
+    ]
 
 
 def _one_claim() -> list[GroundedClaim]:
     return [
         GroundedClaim(
             claim="first",
-            evidence=[ClaimEvidence(row_index=0, field="emp_no", value=1000)],
+            evidence=[ClaimEvidence(row_index=0, field="emp_no", value=100000)],
         )
     ]
 
@@ -344,3 +353,50 @@ def test_rounding_cannot_manufacture_a_figure(answer: str) -> None:
 
     with pytest.raises(GroundingFailureError):
         GroundingValidator().validate(answer=answer, claims=claims, rows=rows)
+
+
+def test_a_year_inside_a_month_label_is_quoting_the_result() -> None:
+    """The failure this guards against sank every time-series answer.
+
+    A month column of "2024-02" yielded neither 2024 nor 02 under the prose
+    pattern, whose word-boundary guards exist to avoid matching inside an
+    identifier. Right for reading a sentence, wrong for reading data: naming
+    the year alongside the month is quoting the result back, not inventing.
+    """
+    rows: list[dict[str, object]] = [
+        {"month": "2024-02", "invoiced_revenue": "6900.0000"},
+        {"month": "2024-11", "invoiced_revenue": "43200.0000"},
+    ]
+    claims = [
+        GroundedClaim(
+            claim="February",
+            evidence=[ClaimEvidence(row_index=0, field="month", value="2024-02")],
+        )
+    ]
+
+    assert GroundingValidator().validate(
+        answer="Invoiced revenue started at 6,900 in February 2024 and "
+        "ended at 43,200 in November.",
+        claims=claims,
+        rows=rows,
+    )
+
+
+def test_a_round_approximation_is_still_refused() -> None:
+    """"consistently above 100,000" is a figure the model made up."""
+    rows: list[dict[str, object]] = [
+        {"month": "2024-04", "invoiced_revenue": "113050.0000"},
+    ]
+    claims = [
+        GroundedClaim(
+            claim="April",
+            evidence=[ClaimEvidence(row_index=0, field="month", value="2024-04")],
+        )
+    ]
+
+    with pytest.raises(GroundingFailureError):
+        GroundingValidator().validate(
+            answer="Revenue stayed above 100,000 through April 2024.",
+            claims=claims,
+            rows=rows,
+        )

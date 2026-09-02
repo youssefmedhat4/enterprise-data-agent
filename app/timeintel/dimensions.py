@@ -181,11 +181,52 @@ def candidates_for_tables(
     ]
 
 
+def named_by_question(
+    dimensions: list[TemporalDimension], question: str
+) -> list[TemporalDimension]:
+    """Candidates the question itself points at.
+
+    A question saying "invoiced revenue" is about invoices, and the invoice
+    date is not in competition with the compensation effective date however
+    many tables happen to be in scope. Matching is on the reviewed entity and
+    concept names, so it works on a schema whose physical columns are called
+    `inv_dt_chr`.
+
+    Word overlap rather than whole-phrase containment: nobody writes "invoice
+    date" in a sentence, they write "what was invoiced". Short words are
+    dropped from both sides so nothing matches on "the".
+    """
+    asked = {word for word in _words(question) if len(word) > 3}
+    if not asked:
+        return []
+
+    def mentions(term: str) -> bool:
+        words = {word for word in _words(term) if len(word) > 3}
+        return any(
+            word in asked
+            or f"{word}s" in asked
+            or f"{word}d" in asked
+            or word.rstrip("s") in asked
+            for word in words
+        )
+
+    return [
+        dimension
+        for dimension in dimensions
+        if mentions(dimension.entity_name) or mentions(dimension.concept_name)
+    ]
+
+
+def _words(text: str) -> set[str]:
+    return {word for word in re.split(r"[^a-z0-9]+", text.casefold()) if word}
+
+
 def choose(
     dimensions: list[TemporalDimension],
     *,
     tables: set[str],
     requested_id: UUID | None = None,
+    question: str = "",
 ) -> tuple[TemporalDimension | None, list[TemporalDimension]]:
     """The temporal column to use, or the choices to ask a person about.
 
@@ -193,6 +234,11 @@ def choose(
     means the question is genuinely ambiguous -- "projects last year" over a
     table holding a start date, a close date and a created date -- and guessing
     between them produces an answer that is confidently about the wrong thing.
+
+    The order of preference is deliberate: an explicit binding, then what the
+    question names, then a reviewer's default, then the single event date.
+    Asking comes last, because asking about something the question already
+    answered is its own kind of wrong.
     """
     available = candidates_for_tables(dimensions, tables)
     if requested_id is not None:
@@ -201,15 +247,24 @@ def choose(
         )
         if chosen is not None:
             return chosen, []
-    marked = [item for item in available if item.is_default_for_entity]
+
+    named = named_by_question(available, question) if question else []
+    if len(named) == 1:
+        return named[0], []
+    # Narrow to what the question named before falling back to the rest: a
+    # question about invoices should not be offered the payroll date as an
+    # alternative, and should not be asked at all when it named one date.
+    considered = named if len(named) > 1 else available
+
+    marked = [item for item in considered if item.is_default_for_entity]
     if len(marked) == 1:
         return marked[0], []
-    events = [item for item in available if item.role is TemporalRole.EVENT_TIME]
+    events = [item for item in considered if item.role is TemporalRole.EVENT_TIME]
     if len(events) == 1:
         return events[0], []
-    if len(available) == 1:
-        return available[0], []
-    return None, available
+    if len(considered) == 1:
+        return considered[0], []
+    return None, considered
 
 
 def _quote(identifier: str) -> str:

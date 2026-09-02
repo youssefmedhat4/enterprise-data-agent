@@ -8,6 +8,7 @@ is a governance decision rather than an analytics one.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -53,6 +54,7 @@ class EvaluationCaseView(StrictPayload):
     ordered: bool
     expected_route: str | None = None
     expected_metric_ids: list[str] = Field(default_factory=list)
+    as_of: str | None = None
     status: CaseStatus
     created_by: str | None = None
     created_at: str
@@ -76,6 +78,11 @@ class SaveEvaluationCase(StrictPayload):
     ordered: bool = False
     expected_route: str | None = Field(default=None, max_length=64)
     expected_metric_ids: list[str] = Field(default_factory=list, max_length=20)
+    #: The instant relative periods resolve against for this case. A
+    #: benchmark asking about "year to date" means something different every
+    #: month without one, so the regression it was written to catch never
+    #: fails twice the same way.
+    as_of: datetime | None = None
     status: CaseStatus = CaseStatus.ACTIVE
 
 
@@ -253,6 +260,7 @@ def _build_case(
         "ordered": payload.ordered,
         "expected_route": payload.expected_route,
         "expected_metric_ids": tuple(payload.expected_metric_ids),
+        "as_of": payload.as_of,
         "status": payload.status,
         "created_by": created_by,
     }
@@ -343,6 +351,7 @@ def _case_view(case: EvaluationCase) -> EvaluationCaseView:
         ordered=case.ordered,
         expected_route=case.expected_route,
         expected_metric_ids=list(case.expected_metric_ids),
+        as_of=case.as_of.isoformat() if case.as_of else None,
         status=case.status,
         created_by=case.created_by,
         created_at=case.created_at.isoformat(),

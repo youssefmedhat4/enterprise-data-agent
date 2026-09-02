@@ -134,15 +134,49 @@ def validate_timezone(name: str) -> str:
     return name
 
 
+#: The last day each month can start on. February stops at 28 deliberately --
+#: see `validate_fiscal_start`.
+_LAST_START_DAY = {
+    1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
+    7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
+}
+
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
 def validate_fiscal_start(month: int, day: int) -> tuple[int, int]:
+    """A fiscal year start that exists in every year.
+
+    Checked against the month that was chosen, not against a blanket limit:
+    plenty of companies run a year from 31 July or 30 April, and refusing those
+    turns a real calendar into one nobody can express.
+
+    29 February is refused on purpose. A year starting there has a start date in
+    one year out of four and none in the other three, and every way of papering
+    over that -- sliding to the 28th, to 1 March, to the nearest weekday -- is
+    this system inventing a company's accounting calendar. Inventing calendars
+    is the failure the whole design exists to prevent, so a business that really
+    does start its year at the end of February is asked to say which day it
+    means in a non-leap year.
+    """
     if not 1 <= month <= 12:
         raise TimePolicyError("A fiscal year starts in a month between 1 and 12.")
-    # 29-31 vary by month and would make the fiscal year start disappear in
-    # some years. Companies do not start fiscal years there.
-    if not 1 <= day <= 28:
+    last = _LAST_START_DAY[month]
+    if day < 1 or day > last:
+        name = _MONTH_NAMES[month - 1]
+        if month == 2 and day == 29:
+            raise TimePolicyError(
+                "A fiscal year cannot start on 29 February: three years in four "
+                "have no such date, and choosing a substitute would be inventing "
+                "your calendar. Use 28 February or 1 March, whichever your "
+                "accounting calendar means."
+            )
         raise TimePolicyError(
-            "A fiscal year start day must be between 1 and 28 so it exists in "
-            "every month."
+            f"{name} has no day {day}: a fiscal year starting in {name} begins "
+            f"between the 1st and the {last}."
         )
     return month, day
 

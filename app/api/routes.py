@@ -59,7 +59,7 @@ from app.observability.factory import build_trace_service
 from app.observability.gateway import TraceService
 from app.routing.planner import MetricRequestPlanner
 from app.security.sql_validation import SQLValidator
-from app.semantic.entities import sampleable_columns
+from app.semantic.entities import sampleable_columns, tables_for_question
 from app.semantic.entity_values import DatabaseEntityValueGateway
 from app.semantic.factory import build_semantic_gateway
 from app.semantic.gateway import SemanticGateway
@@ -621,6 +621,34 @@ async def _metric_time_binding(
     }
 
 
+def _temporal_table_scope(
+    available: set[str], semantic_model: Any, question: str
+) -> set[str]:
+    """The tables a temporal column may be chosen from.
+
+    The authorized schema is the wrong answer here. A small database offers all
+    of its tables to the model deliberately -- narrowing a nine-table schema
+    only hides things it might need -- but handing that same set to the temporal
+    chooser makes every question look ambiguous: an invoice question sees the
+    compensation effective date and the cost transaction date as rival
+    candidates and asks which is meant, when only one of them is on a table the
+    question is about.
+
+    So the candidates come from what the question is *about*, using the same
+    confirmed-meaning matching that already selects tables. Where that narrows
+    to nothing the full set stands, because being asked which date is meant is
+    better than picking one at random.
+    """
+    if semantic_model is None:
+        return available
+    wanted = {
+        identifier
+        for identifier in tables_for_question(semantic_model, question)
+        if identifier in available
+    }
+    return wanted or available
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -703,9 +731,14 @@ async def query_analytics(
         active_data_source_id,
         request.question,
         clock=_clock_for(request),
-        tables={table.identifier for table in await execution_gateway.search_schema(
-            request.question
-        )},
+        tables=_temporal_table_scope(
+            {
+                table.identifier
+                for table in await execution_gateway.search_schema(request.question)
+            },
+            semantic_model,
+            request.question,
+        ),
         # A certified metric already says which column it measures against and
         # whether it accumulates. Both beat inference: an approved binding is a
         # decision, and "headcount year to date" is a category error rather

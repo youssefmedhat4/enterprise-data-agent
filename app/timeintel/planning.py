@@ -85,6 +85,7 @@ def plan_time(
         dimensions,
         tables=tables,
         requested_id=metric_dimension_id or intent.time_dimension_id,
+        question=question,
     )
     if dimension is None:
         if alternatives:

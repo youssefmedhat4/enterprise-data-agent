@@ -8,6 +8,9 @@ from app.errors import GroundingFailureError
 logger = logging.getLogger(__name__)
 
 _PROSE_NUMERAL = re.compile(r"(?<![\w-])-?\d[\d,]*(?:\.\d+)?(?![\w-])")
+#: Digit runs inside a result value, wherever they sit. Hyphens and letters
+#: around them are part of a label, not a reason to ignore the number.
+_VALUE_NUMERAL = re.compile(r"\d+(?:\.\d+)?")
 _ROW_COUNT_LEFT = re.compile(
     r"(?:\b(?:result|query|response|output)\s+"
     r"(?:contains?|contained|returns?|returned|has|includes?|included|produces?|produced)"
@@ -109,16 +112,22 @@ class GroundingValidator:
             for value in row.values()
             if (normalized := _normalized_number(value)) is not None
         }
-        # Numerals *inside* result text -- "Project 003", "Q3 2024", "Region 5".
+        # Numerals *inside* result text -- "Project 003", "Q3 2024", "2024-02".
         # Naming such a row back to the user quotes the result; it does not
         # invent anything. Counting only wholly numeric values meant listing
         # the projects that matched a question failed as an unsupported claim.
+        #
+        # Harvested with a looser pattern than the prose scan below. The prose
+        # guards against matching inside an identifier, which is right when
+        # reading a sentence and wrong when reading data: a month label of
+        # "2024-02" yielded neither 2024 nor 02, so every time-series answer
+        # that named its year was rejected for quoting the result back.
         supported |= {
             number
             for row in rows
             for value in row.values()
             if isinstance(value, str)
-            for fragment in _PROSE_NUMERAL.findall(value)
+            for fragment in _VALUE_NUMERAL.findall(value)
             if (number := _normalized_number(fragment)) is not None
         }
         row_count = len(rows)
