@@ -142,6 +142,7 @@ class DebugProvenance(StrictContract):
     semantic_model_ids: list[str] = Field(default_factory=list)
     semantic_relationship_ids: list[str] = Field(default_factory=list)
     semantic_measure_ids: list[str] = Field(default_factory=list)
+    applied_instruction_ids: list[str] = Field(default_factory=list)
     applied_instruction_titles: list[str] = Field(default_factory=list)
     applied_example_ids: list[str] = Field(default_factory=list)
     sql_generation_provider: str = "llm"
@@ -217,6 +218,7 @@ class InternalProvenance(StrictContract):
     #: Reviewed knowledge that actually shaped this answer. Recorded so an
     #: auditor can tell whether an approved business definition was applied,
     #: and equally that an unrelated one was not.
+    applied_instruction_ids: list[str] = Field(default_factory=list)
     applied_instruction_titles: list[str] = Field(default_factory=list)
     applied_example_ids: list[str] = Field(default_factory=list)
     governance_catalog_freshness_at: datetime | None = None
@@ -266,6 +268,7 @@ class InternalProvenance(StrictContract):
                 semantic_model_ids=self.semantic_model_ids,
                 semantic_relationship_ids=self.semantic_relationship_ids,
                 semantic_measure_ids=self.semantic_measure_ids,
+                applied_instruction_ids=self.applied_instruction_ids,
                 applied_instruction_titles=self.applied_instruction_titles,
                 applied_example_ids=self.applied_example_ids,
                 sql_generation_provider=self.sql_generation_provider,
@@ -385,6 +388,37 @@ class TimeInterpretationView(StrictContract):
     as_of: str | None = None
 
 
+class KnowledgeOriginView(StrictContract):
+    """Deterministic origin of one authoritative knowledge object.
+
+    Candidate and cluster fields are populated only for callers with knowledge
+    review authority. The origin type itself is safe answer provenance.
+    """
+
+    type: Literal["LEARNED", "MANUAL", "SEEDED", "DISCOVERY", "UNKNOWN"]
+    candidate_id: UUID | None = None
+    cluster_id: UUID | None = None
+    candidate_name: str | None = None
+    candidate_status: str | None = None
+    evidence_count: int | None = Field(default=None, ge=0)
+    successful_evidence_count: int | None = Field(default=None, ge=0)
+    review_decision: str | None = None
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+
+
+class KnowledgeUseView(StrictContract):
+    """Approved runtime knowledge that actually shaped this answer."""
+
+    kind: str
+    id: str
+    name: str
+    summary: str = ""
+    usage: str
+    destination_type: str
+    origin: KnowledgeOriginView
+
+
 class AnswerTraceView(StrictContract):
     """How one answer was produced, in terms a reader can check.
 
@@ -404,6 +438,7 @@ class AnswerTraceView(StrictContract):
     metrics: list[str] = Field(default_factory=list)
     business_instructions: list[str] = Field(default_factory=list)
     query_examples: list[str] = Field(default_factory=list)
+    knowledge_used: list[KnowledgeUseView] = Field(default_factory=list)
     resolved_entities: list[str] = Field(default_factory=list)
     tables: list[LineageTable] = Field(default_factory=list)
     metric_lineage: list[LineageMetricNode] = Field(default_factory=list)

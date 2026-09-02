@@ -132,6 +132,10 @@ class ClusterView(StrictPayload):
     first_seen_at: str
     last_seen_at: str
     status: str
+    candidate_id: UUID | None = None
+    candidate_status: str | None = None
+    promoted_to_type: str | None = None
+    promoted_to_id: UUID | None = None
 
 
 class CandidateDetail(StrictPayload):
@@ -153,12 +157,16 @@ class CandidateView(StrictPayload):
     grain: str | None = None
     dependencies: list[str] = Field(default_factory=list)
     rejection_reason: str | None = None
+    cluster_id: UUID | None = None
+    promoted_to_type: str | None = None
+    promoted_to_id: UUID | None = None
     #: Type-specific detail a reviewer needs in order to decide. A reviewer
     #: shown only a name is being asked to approve something they cannot see.
     detail: list[CandidateDetail] = Field(default_factory=list)
 
 
 class CertifiedMetricView(StrictPayload):
+    id: UUID
     metric_key: str
     display_name: str
     description: str
@@ -172,6 +180,7 @@ class CertifiedMetricView(StrictPayload):
     semantic_expression: str | None = None
     approved_at: str | None = None
     approved_by: str | None = None
+    source_candidate_id: UUID | None = None
 
 
 class QueryExampleView(StrictPayload):
@@ -181,6 +190,9 @@ class QueryExampleView(StrictPayload):
     status: ApprovalStatus
     schema_fingerprint: str | None = None
     approved_at: str | None = None
+    source_candidate_id: UUID | None = None
+    source_cluster_id: UUID | None = None
+    approved_by: str | None = None
     #: Withheld unless the reviewer has debug authority: the statement can
     #: describe table and column names beyond what the viewer needs.
     query_pattern: str | None = None
@@ -196,6 +208,7 @@ class BusinessInstructionView(StrictPayload):
     schema_fingerprint: str | None = None
     source_candidate_id: UUID | None = None
     approved_at: str | None = None
+    approved_by: str | None = None
 
 
 class AuthorBusinessInstruction(StrictPayload):
@@ -878,6 +891,11 @@ async def list_clusters(
     memory = knowledge.memory
     if memory is None:
         return []
+    candidate_store = knowledge.candidates
+    candidates = (
+        await candidate_store.list(data_source_id) if candidate_store is not None else []
+    )
+    by_cluster = {candidate.cluster_id: candidate for candidate in candidates}
     return [
         ClusterView(
             id=cluster.id,
@@ -888,6 +906,22 @@ async def list_clusters(
             first_seen_at=cluster.first_seen_at.isoformat(),
             last_seen_at=cluster.last_seen_at.isoformat(),
             status=cluster.status,
+            candidate_id=(
+                by_cluster[cluster.id].id if cluster.id in by_cluster else None
+            ),
+            candidate_status=(
+                by_cluster[cluster.id].status.value if cluster.id in by_cluster else None
+            ),
+            promoted_to_type=(
+                by_cluster[cluster.id].promoted_to_type
+                if cluster.id in by_cluster
+                else None
+            ),
+            promoted_to_id=(
+                by_cluster[cluster.id].promoted_to_id
+                if cluster.id in by_cluster
+                else None
+            ),
         )
         for cluster in await memory.clusters(data_source_id)
     ]
@@ -1013,6 +1047,7 @@ async def list_certified_metrics(
         return []
     return [
         CertifiedMetricView(
+            id=metric.id,
             metric_key=metric.metric_key,
             display_name=metric.display_name,
             description=metric.description,
@@ -1026,6 +1061,7 @@ async def list_certified_metrics(
             semantic_expression=metric.semantic_expression,
             approved_at=metric.approved_at.isoformat() if metric.approved_at else None,
             approved_by=metric.approved_by,
+            source_candidate_id=metric.source_candidate_id,
         )
         for metric in await registry.certified(data_source_id)
     ]
@@ -1048,6 +1084,9 @@ async def list_query_examples(
             status=example.status,
             schema_fingerprint=example.schema_fingerprint,
             approved_at=example.approved_at.isoformat(),
+            source_candidate_id=example.source_candidate_id,
+            source_cluster_id=example.source_cluster_id,
+            approved_by=example.approved_by,
         )
         for example in await guidance.examples(data_source_id)
     ]
@@ -1176,6 +1215,7 @@ def _instruction_view(instruction: Any) -> BusinessInstructionView:
         approved_at=(
             instruction.approved_at.isoformat() if instruction.approved_at else None
         ),
+        approved_by=instruction.approved_by,
     )
 
 
@@ -1235,4 +1275,7 @@ def _candidate_view(candidate: Any) -> CandidateView:
         grain=grain,
         dependencies=dependencies,
         rejection_reason=candidate.rejection_reason,
+        cluster_id=candidate.cluster_id,
+        promoted_to_type=candidate.promoted_to_type,
+        promoted_to_id=candidate.promoted_to_id,
     )

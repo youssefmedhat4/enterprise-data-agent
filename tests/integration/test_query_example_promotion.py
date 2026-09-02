@@ -268,6 +268,11 @@ async def test_approval_stores_the_reviewed_statement_as_an_example() -> None:
     stored = await store.by_id(SOURCE_A, candidate.id)
     assert stored is not None
     assert stored.status is CandidateStatus.APPROVED
+    assert stored.promoted_to_type == "QUERY_EXAMPLE"
+    assert stored.promoted_to_id == example.id
+    assert example.source_candidate_id == candidate.id
+    assert example.source_cluster_id == CLUSTER
+    assert example.approved_by == "reviewer"
     assert [item.question for item in await guidance.examples(SOURCE_A)] == [QUESTION]
 
 

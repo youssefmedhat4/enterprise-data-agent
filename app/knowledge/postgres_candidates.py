@@ -36,7 +36,8 @@ _COLUMNS = """
     id, data_source_id, candidate_type, display_name, description, rationale,
     proposal_payload, structural_fingerprint, cluster_id, evidence_count,
     successful_evidence_count, evidence_sql, evidence_schema_fingerprint,
-    status, rejection_reason, version, created_at, reviewed_at, reviewed_by
+    status, rejection_reason, version, created_at, reviewed_at, reviewed_by,
+    promoted_to_type, promoted_to_id
 """
 
 _UPSERT = """
@@ -45,14 +46,14 @@ _UPSERT = """
          proposal_payload, structural_fingerprint, cluster_id, evidence_count,
          successful_evidence_count, evidence_sql, evidence_schema_fingerprint,
          status, rejection_reason, version,
-         created_at, reviewed_at, reviewed_by)
+         created_at, reviewed_at, reviewed_by, promoted_to_type, promoted_to_id)
     VALUES
         (%(id)s, %(data_source_id)s, %(candidate_type)s, %(display_name)s,
          %(description)s, %(payload)s, %(fingerprint)s, %(cluster_id)s,
          %(evidence_count)s, %(successful_evidence_count)s, %(evidence_sql)s,
          %(evidence_fingerprint)s, %(status)s,
          %(rejection_reason)s, %(version)s, %(created_at)s, %(reviewed_at)s,
-         %(reviewed_by)s)
+         %(reviewed_by)s, %(promoted_to_type)s, %(promoted_to_id)s)
     ON CONFLICT (data_source_id, candidate_type, structural_fingerprint)
     DO UPDATE SET
         display_name = EXCLUDED.display_name,
@@ -67,6 +68,8 @@ _UPSERT = """
         version = EXCLUDED.version,
         reviewed_at = EXCLUDED.reviewed_at,
         reviewed_by = EXCLUDED.reviewed_by,
+        promoted_to_type = EXCLUDED.promoted_to_type,
+        promoted_to_id = EXCLUDED.promoted_to_id,
         updated_at = now()
 """
 
@@ -105,6 +108,8 @@ class PostgresCandidateStore:
                     "created_at": candidate.created_at,
                     "reviewed_at": candidate.reviewed_at,
                     "reviewed_by": candidate.reviewed_by,
+                    "promoted_to_type": candidate.promoted_to_type,
+                    "promoted_to_id": candidate.promoted_to_id,
                 },
             )
         stored = await self.get(
@@ -211,4 +216,6 @@ def _to_candidate(row: dict[str, Any]) -> KnowledgeCandidate | None:
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
         reviewed_by=row["reviewed_by"],
+        promoted_to_type=row["promoted_to_type"],
+        promoted_to_id=row["promoted_to_id"],
     )

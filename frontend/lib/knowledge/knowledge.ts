@@ -20,6 +20,10 @@ export interface KnowledgeCluster {
   firstSeenAt: string;
   lastSeenAt: string;
   status: string;
+  candidateId: string | null;
+  candidateStatus: string | null;
+  promotedToType: string | null;
+  promotedToId: string | null;
 }
 
 export interface KnowledgeCandidate {
@@ -34,11 +38,15 @@ export interface KnowledgeCandidate {
   grain: string | null;
   dependencies: string[];
   rejectionReason: string | null;
+  clusterId: string | null;
+  promotedToType: string | null;
+  promotedToId: string | null;
   /** Type-specific facts a reviewer needs in order to decide. */
   detail: { label: string; value: string }[];
 }
 
 export interface CertifiedMetric {
+  id: string;
   metricKey: string;
   displayName: string;
   description: string;
@@ -52,6 +60,7 @@ export interface CertifiedMetric {
   semanticExpression: string | null;
   approvedAt: string | null;
   approvedBy: string | null;
+  sourceCandidateId: string | null;
 }
 
 export interface QueryExample {
@@ -61,6 +70,21 @@ export interface QueryExample {
   status: ApprovalStatus;
   schemaFingerprint: string | null;
   approvedAt: string | null;
+  sourceCandidateId: string | null;
+  sourceClusterId: string | null;
+  approvedBy: string | null;
+}
+
+export interface BusinessInstruction {
+  id: string;
+  title: string;
+  instruction: string;
+  semanticConcepts: string[];
+  metricKeys: string[];
+  status: ApprovalStatus;
+  sourceCandidateId: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
 }
 
 export class KnowledgeAccessError extends Error {
@@ -115,6 +139,10 @@ export function fetchClusters(dataSourceId: string): Promise<KnowledgeCluster[]>
     firstSeenAt: str(raw.first_seen_at),
     lastSeenAt: str(raw.last_seen_at),
     status: str(raw.status, "ACTIVE"),
+    candidateId: nullable(raw.candidate_id),
+    candidateStatus: nullable(raw.candidate_status),
+    promotedToType: nullable(raw.promoted_to_type),
+    promotedToId: nullable(raw.promoted_to_id),
   }));
 }
 
@@ -131,6 +159,9 @@ export function fetchCandidates(dataSourceId: string): Promise<KnowledgeCandidat
     grain: nullable(raw.grain),
     dependencies: strList(raw.dependencies),
     rejectionReason: nullable(raw.rejection_reason),
+    clusterId: nullable(raw.cluster_id),
+    promotedToType: nullable(raw.promoted_to_type),
+    promotedToId: nullable(raw.promoted_to_id),
     detail: Array.isArray(raw.detail)
       ? raw.detail.map((entry) => {
           const row = entry as Record<string, unknown>;
@@ -142,6 +173,7 @@ export function fetchCandidates(dataSourceId: string): Promise<KnowledgeCandidat
 
 export function fetchCertifiedMetrics(dataSourceId: string): Promise<CertifiedMetric[]> {
   return get(`/data-sources/${dataSourceId}/metrics`, (raw: Record<string, unknown>) => ({
+    id: str(raw.id),
     metricKey: str(raw.metric_key),
     displayName: str(raw.display_name),
     description: str(raw.description),
@@ -155,6 +187,7 @@ export function fetchCertifiedMetrics(dataSourceId: string): Promise<CertifiedMe
     semanticExpression: nullable(raw.semantic_expression),
     approvedAt: nullable(raw.approved_at),
     approvedBy: nullable(raw.approved_by),
+    sourceCandidateId: nullable(raw.source_candidate_id),
   }));
 }
 
@@ -166,6 +199,25 @@ export function fetchQueryExamples(dataSourceId: string): Promise<QueryExample[]
     status: str(raw.status, "PROPOSED") as ApprovalStatus,
     schemaFingerprint: nullable(raw.schema_fingerprint),
     approvedAt: nullable(raw.approved_at),
+    sourceCandidateId: nullable(raw.source_candidate_id),
+    sourceClusterId: nullable(raw.source_cluster_id),
+    approvedBy: nullable(raw.approved_by),
+  }));
+}
+
+export function fetchBusinessInstructions(
+  dataSourceId: string,
+): Promise<BusinessInstruction[]> {
+  return get(`/data-sources/${dataSourceId}/instructions`, (raw: Record<string, unknown>) => ({
+    id: str(raw.id),
+    title: str(raw.title),
+    instruction: str(raw.instruction),
+    semanticConcepts: strList(raw.semantic_concepts),
+    metricKeys: strList(raw.metric_keys),
+    status: str(raw.status, "CONFIRMED") as ApprovalStatus,
+    sourceCandidateId: nullable(raw.source_candidate_id),
+    approvedAt: nullable(raw.approved_at),
+    approvedBy: nullable(raw.approved_by),
   }));
 }
 

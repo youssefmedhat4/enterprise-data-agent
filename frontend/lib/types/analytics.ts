@@ -110,6 +110,9 @@ export interface DebugProvenance {
   semantic_model_ids: string[];
   semantic_relationship_ids: string[];
   semantic_measure_ids: string[];
+  applied_instruction_ids: string[];
+  applied_instruction_titles: string[];
+  applied_example_ids: string[];
   sql_generation_provider: string;
   route: string;
   route_reason_code: string;
@@ -226,6 +229,29 @@ export interface LineageMetricNode {
   children: LineageMetricNode[];
 }
 
+export interface KnowledgeOrigin {
+  type: "LEARNED" | "MANUAL" | "SEEDED" | "DISCOVERY" | "UNKNOWN";
+  candidate_id: string | null;
+  cluster_id: string | null;
+  candidate_name: string | null;
+  candidate_status: string | null;
+  evidence_count: number | null;
+  successful_evidence_count: number | null;
+  review_decision: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+}
+
+export interface KnowledgeUse {
+  kind: string;
+  id: string;
+  name: string;
+  summary: string;
+  usage: string;
+  destination_type: string;
+  origin: KnowledgeOrigin;
+}
+
 /**
  * How one answer was produced.
  *
@@ -242,6 +268,7 @@ export interface AnswerTrace {
   metrics: string[];
   business_instructions: string[];
   query_examples: string[];
+  knowledge_used: KnowledgeUse[];
   resolved_entities: string[];
   tables: LineageTable[];
   metric_lineage: LineageMetricNode[];

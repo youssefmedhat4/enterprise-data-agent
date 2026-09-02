@@ -47,9 +47,18 @@ export default function KnowledgePage() {
     }
   }, []);
 
+  // Read after mount, never during render: the page is prerendered, so the
+  // first paint has to match the server's. A link from an answer names the
+  // datasource it was answered from, which outranks whatever was last selected.
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("dataSource");
     const stored = sessionStorage.getItem(DATA_SOURCE_STORAGE_KEY);
-    if (stored !== null) setDataSourceId(stored);
+    if (requested !== null) {
+      setDataSourceId(requested);
+      sessionStorage.setItem(DATA_SOURCE_STORAGE_KEY, requested);
+    } else if (stored !== null) {
+      setDataSourceId(stored);
+    }
     void loadSources();
   }, [loadSources]);
 

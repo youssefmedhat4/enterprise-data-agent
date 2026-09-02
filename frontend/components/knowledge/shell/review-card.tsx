@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { ArrowRight, Check, X } from "lucide-react";
 
 import {
   DetailRow,
@@ -59,16 +59,21 @@ export function CandidateCard({
   busy,
   onApprove,
   onReject,
+  onNavigate,
 }: {
   candidate: KnowledgeCandidate;
   busy: boolean;
   onApprove: () => void;
   onReject: () => void;
+  onNavigate: (section: string, id: string) => void;
 }) {
   const pending = candidate.status === "PROPOSED";
+  const promotedTo =
+    candidate.promotedToId === null ? null : candidate.promotedToType;
+  const destination = promotedTo === null ? null : destinationSection(promotedTo);
 
   return (
-    <Panel interactive className="p-5">
+    <Panel interactive id={`candidate-${candidate.id}`} className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="text-[15px] font-medium text-foreground">
@@ -114,7 +119,38 @@ export function CandidateCard({
             value={candidate.rejectionReason}
           />
         ) : null}
+        {/* Where approval put it. Stated for every promoted candidate, even
+            the learned kinds this workspace has no page for -- that a filter
+            became authoritative is the fact worth knowing. */}
+        {promotedTo !== null ? (
+          <DetailRow label="Promoted to" value={destinationLabel(promotedTo)} />
+        ) : null}
       </dl>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {candidate.clusterId !== null ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onNavigate("questions", candidate.clusterId!)}
+          >
+            View recurring question
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Button>
+        ) : null}
+        {/* Only offered where a section actually lists that store, so the
+            link never lands on an empty pane. */}
+        {destination !== null && candidate.promotedToId !== null ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onNavigate(destination, candidate.promotedToId!)}
+          >
+            View promoted knowledge
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
 
       {pending ? (
         <div className="mt-4 flex justify-end border-t border-hairline pt-4">
@@ -128,4 +164,18 @@ export function CandidateCard({
       ) : null}
     </Panel>
   );
+}
+
+function destinationSection(type: string): string | null {
+  if (type === "QUERY_EXAMPLE") return "examples";
+  if (type === "BUSINESS_RULE") return "rules";
+  if (type === "METRIC") return "metrics";
+  return null;
+}
+
+function destinationLabel(type: string): string {
+  if (type === "QUERY_EXAMPLE") return "Approved example";
+  if (type === "BUSINESS_RULE") return "Business rule";
+  if (type === "METRIC") return "Certified metric";
+  return type.toLowerCase().replaceAll("_", " ");
 }

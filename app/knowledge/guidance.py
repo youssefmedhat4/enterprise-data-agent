@@ -57,6 +57,8 @@ class ApprovedQueryExample:
     status: ApprovalStatus = ApprovalStatus.CONFIRMED
     source_query_id: str | None = None
     source_cluster_id: UUID | None = None
+    source_candidate_id: UUID | None = None
+    approved_by: str | None = None
     approved_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -79,6 +81,7 @@ class BusinessInstruction:
     status: ApprovalStatus = ApprovalStatus.CONFIRMED
     schema_fingerprint: str | None = None
     source_candidate_id: UUID | None = None
+    approved_by: str | None = None
     approved_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -243,6 +246,8 @@ def _stale_example(example: ApprovedQueryExample) -> ApprovedQueryExample:
         status=ApprovalStatus.STALE,
         source_query_id=example.source_query_id,
         source_cluster_id=example.source_cluster_id,
+        source_candidate_id=example.source_candidate_id,
+        approved_by=example.approved_by,
         approved_at=example.approved_at,
     )
 

@@ -255,6 +255,10 @@ class KnowledgeCandidate:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reviewed_at: datetime | None = None
     reviewed_by: str | None = None
+    #: Explicit link to the authoritative store row created by approval.
+    #: Runtime never reads through this link; it exists for audit/navigation.
+    promoted_to_type: str | None = None
+    promoted_to_id: UUID | None = None
 
 
 class CandidateStore(Protocol):
@@ -583,6 +587,7 @@ class CandidateReview:
             dependencies=tuple(dependencies),
             approved_at=datetime.now(UTC),
             approved_by=reviewed_by,
+            source_candidate_id=candidate.id,
         )
         stored = await self._registry.upsert(metric)
         await self._store.upsert(
@@ -590,6 +595,8 @@ class CandidateReview:
                 candidate,
                 status=CandidateStatus.APPROVED,
                 reviewed_by=reviewed_by,
+                promoted_to_type="METRIC",
+                promoted_to_id=stored.id,
             )
         )
         return stored
@@ -659,6 +666,8 @@ class CandidateReview:
             semantic_plan=proposal.semantic_plan,
             schema_fingerprint=current_schema_fingerprint,
             source_cluster_id=candidate.cluster_id,
+            source_candidate_id=candidate.id,
+            approved_by=reviewed_by,
         )
         try:
             stored = await approve(
@@ -674,6 +683,8 @@ class CandidateReview:
                 candidate,
                 status=CandidateStatus.APPROVED,
                 reviewed_by=reviewed_by,
+                promoted_to_type="QUERY_EXAMPLE",
+                promoted_to_id=stored.id,
             )
         )
         return cast("ApprovedQueryExample", stored)
@@ -702,21 +713,26 @@ class CandidateReview:
             raise CandidateReviewError("Learned knowledge storage is not configured.")
         proposal = candidate.proposal
 
+        promoted: Any
+        promoted_type: str
+        promoted_id: UUID
         if isinstance(proposal, FilterProposal):
             if predicate_depth(proposal.predicate) > MAX_PREDICATE_DEPTH:
                 raise CandidateReviewError(
                     "The predicate is nested deeper than a readable population."
                 )
             _require_concepts(semantic_model, referenced_concepts(proposal.predicate))
-            await learned.add_filter(
+            promoted = await learned.add_filter(
                 ApprovedFilter(
                     data_source_id=data_source_id,
                     name=proposal.display_name,
                     description=proposal.description,
                     predicate=proposal.predicate.model_dump(mode="json"),
                     source_candidate_id=candidate.id,
+                    approved_by=reviewed_by,
                 )
             )
+            promoted_type, promoted_id = "FILTER", promoted.id
         elif isinstance(proposal, SynonymProposal):
             if proposal.target_kind == "metric":
                 known = {
@@ -729,18 +745,20 @@ class CandidateReview:
                     )
             else:
                 _require_concepts(semantic_model, {proposal.target})
-            await learned.add_synonym(
+            promoted = await learned.add_synonym(
                 ApprovedSynonym(
                     data_source_id=data_source_id,
                     target_kind=proposal.target_kind,
                     target=proposal.target,
                     phrases=tuple(dict.fromkeys(proposal.phrases)),
                     source_candidate_id=candidate.id,
+                    approved_by=reviewed_by,
                 )
             )
+            promoted_type, promoted_id = "SYNONYM", promoted.id
         elif isinstance(proposal, EntityAliasProposal):
             entity = _require_entity(semantic_model, proposal.entity_name)
-            await learned.add_alias(
+            promoted = await learned.add_alias(
                 ApprovedEntityAlias(
                     data_source_id=data_source_id,
                     entity_id=entity.id,
@@ -750,8 +768,10 @@ class CandidateReview:
                     # live entity lookup and is not settled in advance.
                     canonical_key=proposal.canonical_key,
                     source_candidate_id=candidate.id,
+                    approved_by=reviewed_by,
                 )
             )
+            promoted_type, promoted_id = "ENTITY_ALIAS", promoted.id
         elif isinstance(proposal, JoinRuleProposal):
             left = _require_attribute(semantic_model, proposal.left_concept)
             right = _require_attribute(semantic_model, proposal.right_concept)
@@ -759,15 +779,17 @@ class CandidateReview:
                 raise CandidateReviewError(
                     "A join rule needs two different attributes."
                 )
-            await learned.add_join_rule(
+            promoted = await learned.add_join_rule(
                 ApprovedJoinRule(
                     data_source_id=data_source_id,
                     left_attribute_id=left.id,
                     right_attribute_id=right.id,
                     cardinality=proposal.cardinality,
                     source_candidate_id=candidate.id,
+                    approved_by=reviewed_by,
                 )
             )
+            promoted_type, promoted_id = "JOIN_RULE", promoted.id
         elif isinstance(proposal, DescriptionProposal):
             subject: Any
             if proposal.subject_kind == "entity":
@@ -780,7 +802,7 @@ class CandidateReview:
                     raise CandidateReviewError(
                         f"No certified metric named {proposal.subject!r}."
                     )
-            await learned.add_description(
+            promoted = await learned.add_description(
                 DescriptionRevision(
                     data_source_id=data_source_id,
                     subject_kind=proposal.subject_kind,
@@ -790,8 +812,10 @@ class CandidateReview:
                     previous_description=getattr(subject, "description", None) or "",
                     description=proposal.description,
                     source_candidate_id=candidate.id,
+                    approved_by=reviewed_by,
                 )
             )
+            promoted_type, promoted_id = "DESCRIPTION_IMPROVEMENT", promoted.id
         else:
             raise CandidateReviewError(
                 f"Candidate {candidate.candidate_type.value} is not learned knowledge."
@@ -802,6 +826,8 @@ class CandidateReview:
                 candidate,
                 status=CandidateStatus.APPROVED,
                 reviewed_by=reviewed_by,
+                promoted_to_type=promoted_type,
+                promoted_to_id=promoted_id,
             )
         )
 
@@ -833,16 +859,19 @@ class CandidateReview:
             semantic_concepts=tuple(proposal.semantic_concepts),
             metric_keys=tuple(proposal.metric_keys),
             source_candidate_id=candidate.id,
+            approved_by=reviewed_by,
         )
-        await approve(instruction)
+        stored = await approve(instruction)
         await self._store.upsert(
             _replace(
                 candidate,
                 status=CandidateStatus.APPROVED,
                 reviewed_by=reviewed_by,
+                promoted_to_type="BUSINESS_RULE",
+                promoted_to_id=stored.id,
             )
         )
-        return instruction
+        return cast("BusinessInstruction", stored)
 
     async def _require(
         self, data_source_id: UUID, candidate_id: UUID

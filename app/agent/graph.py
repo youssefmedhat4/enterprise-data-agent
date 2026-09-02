@@ -1163,6 +1163,7 @@ def _generate_sql(
             # What reviewed knowledge reached the prompt, so provenance can
             # show that an approved definition was applied -- and that an
             # unrelated one was correctly left out.
+            "applied_instruction_ids": [str(item.id) for item in instructions],
             "applied_instruction_titles": [item.title for item in instructions],
             "applied_example_ids": [str(item.id) for item in examples],
         }
@@ -1246,6 +1247,7 @@ def _clarify(db_gateway: DatabaseGateway) -> Node:
             semantic_model_ids=state.get("semantic_model_ids", []),
             semantic_relationship_ids=state.get("semantic_relationship_ids", []),
             semantic_measure_ids=state.get("semantic_measure_ids", []),
+            applied_instruction_ids=state.get("applied_instruction_ids", []),
             applied_instruction_titles=state.get("applied_instruction_titles", []),
             applied_example_ids=state.get("applied_example_ids", []),
             sql_generation_provider=state.get("sql_generation_provider", "llm"),
@@ -1289,6 +1291,7 @@ def _block(db_gateway: DatabaseGateway) -> Node:
             semantic_model_ids=state.get("semantic_model_ids", []),
             semantic_relationship_ids=state.get("semantic_relationship_ids", []),
             semantic_measure_ids=state.get("semantic_measure_ids", []),
+            applied_instruction_ids=state.get("applied_instruction_ids", []),
             applied_instruction_titles=state.get("applied_instruction_titles", []),
             applied_example_ids=state.get("applied_example_ids", []),
             sql_generation_provider=state.get("sql_generation_provider", "llm"),
@@ -1554,6 +1557,7 @@ def _ground_answer(db_gateway: DatabaseGateway, llm_gateway: LLMGateway) -> Node
             semantic_model_ids=state.get("semantic_model_ids", []),
             semantic_relationship_ids=state.get("semantic_relationship_ids", []),
             semantic_measure_ids=state.get("semantic_measure_ids", []),
+            applied_instruction_ids=state.get("applied_instruction_ids", []),
             applied_instruction_titles=state.get("applied_instruction_titles", []),
             applied_example_ids=state.get("applied_example_ids", []),
             sql_generation_provider=state.get("sql_generation_provider", "llm"),
@@ -1591,6 +1595,7 @@ def _finalize_sql_result(db_gateway: DatabaseGateway) -> Node:
             semantic_model_ids=state.get("semantic_model_ids", []),
             semantic_relationship_ids=state.get("semantic_relationship_ids", []),
             semantic_measure_ids=state.get("semantic_measure_ids", []),
+            applied_instruction_ids=state.get("applied_instruction_ids", []),
             applied_instruction_titles=state.get("applied_instruction_titles", []),
             applied_example_ids=state.get("applied_example_ids", []),
             sql_generation_provider=state.get("sql_generation_provider", "llm"),

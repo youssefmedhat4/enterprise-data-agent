@@ -36,6 +36,8 @@ from app.contracts.analytics import (
     ExecutionMetadata,
     HealthResponse,
     InternalProvenance,
+    KnowledgeOriginView,
+    KnowledgeUseView,
     LineageMetricNode,
     LineageTable,
     TimeInterpretationView,
@@ -383,6 +385,7 @@ async def _answer_trace(
     model_profile: str,
     quality: list[DataQualityWarning],
     include_sql: bool,
+    include_knowledge_details: bool,
     time_planning: TimePlanning | None = None,
 ) -> AnswerTraceView:
     """Assemble what can be said about how this answer was produced.
@@ -421,6 +424,12 @@ async def _answer_trace(
         else:
             metric_lineage.append(LineageMetricNode(label=key, kind="metric"))
 
+    knowledge_used = await _knowledge_used(
+        knowledge=knowledge,
+        data_source_id=data_source_id,
+        provenance=provenance,
+        include_details=include_knowledge_details,
+    )
     return AnswerTraceView(
         data_source=public_provenance.source,
         route=provenance.route,
@@ -431,6 +440,7 @@ async def _answer_trace(
         metrics=list(metrics),
         business_instructions=list(provenance.applied_instruction_titles),
         query_examples=list(provenance.applied_example_ids),
+        knowledge_used=knowledge_used,
         resolved_entities=[
             f"{entity.get('entity', '')}: {entity.get('display_value', '')}"
             f" ({entity.get('canonical_key', '')})"
@@ -459,6 +469,134 @@ async def _answer_trace(
         time=_time_view(time_planning),
         generated_sql=provenance.validated_sql if include_sql else None,
     )
+
+
+async def _knowledge_used(
+    *,
+    knowledge: KnowledgeRuntime,
+    data_source_id: UUID,
+    provenance: InternalProvenance,
+    include_details: bool,
+) -> list[KnowledgeUseView]:
+    """Resolve only normalized knowledge selected by the completed runtime path.
+
+    Candidate records are joined after execution for history and navigation.
+    They are never queried for prompt content, SQL, metric formulas, or routing.
+    """
+    candidates = {
+        candidate.id: candidate
+        for candidate in await knowledge.candidates.list(data_source_id)
+    }
+    clusters = {
+        cluster.id: cluster
+        for cluster in await knowledge.memory.clusters(data_source_id)
+    }
+
+    def origin(
+        *,
+        source_candidate_id: UUID | None,
+        destination_type: str,
+        destination_id: UUID,
+        approved_at: Any,
+        fallback: str,
+    ) -> KnowledgeOriginView:
+        candidate = candidates.get(source_candidate_id)
+        learned = bool(
+            candidate is not None
+            and candidate.status.value == "APPROVED"
+            and candidate.promoted_to_type == destination_type
+            and candidate.promoted_to_id == destination_id
+        )
+        if not learned or candidate is None:
+            resolved = "UNKNOWN" if source_candidate_id is not None else fallback
+            return KnowledgeOriginView(type=cast(Any, resolved), approved_at=approved_at)
+        if not include_details:
+            return KnowledgeOriginView(type="LEARNED", approved_at=approved_at)
+        cluster = clusters.get(candidate.cluster_id)
+        return KnowledgeOriginView(
+            type="LEARNED",
+            candidate_id=candidate.id,
+            cluster_id=cluster.id if cluster is not None else None,
+            candidate_name=candidate.display_name,
+            candidate_status=candidate.status.value,
+            evidence_count=candidate.evidence_count,
+            successful_evidence_count=candidate.successful_evidence_count,
+            review_decision="APPROVED",
+            approved_by=candidate.reviewed_by,
+            approved_at=approved_at,
+        )
+
+    used: list[KnowledgeUseView] = []
+    guidance = knowledge.guidance
+    if guidance is not None:
+        example_ids = set(provenance.applied_example_ids)
+        for example in await guidance.examples(data_source_id):
+            if str(example.id) not in example_ids:
+                continue
+            used.append(
+                KnowledgeUseView(
+                    kind="QUERY_EXAMPLE",
+                    id=str(example.id),
+                    name=example.question,
+                    summary=(
+                        "The stored statement was not run. It was shown to the "
+                        "planner, which wrote fresh SQL for this question."
+                    ),
+                    usage="PLANNING_CONTEXT",
+                    destination_type="QUERY_EXAMPLE",
+                    origin=origin(
+                        source_candidate_id=example.source_candidate_id,
+                        destination_type="QUERY_EXAMPLE",
+                        destination_id=example.id,
+                        approved_at=example.approved_at,
+                        fallback="MANUAL",
+                    ),
+                )
+            )
+
+        instruction_ids = set(provenance.applied_instruction_ids)
+        for instruction in await guidance.instructions(data_source_id):
+            if str(instruction.id) not in instruction_ids:
+                continue
+            used.append(
+                KnowledgeUseView(
+                    kind="BUSINESS_RULE",
+                    id=str(instruction.id),
+                    name=instruction.title,
+                    summary=instruction.instruction,
+                    usage="BUSINESS_RULE",
+                    destination_type="BUSINESS_RULE",
+                    origin=origin(
+                        source_candidate_id=instruction.source_candidate_id,
+                        destination_type="BUSINESS_RULE",
+                        destination_id=instruction.id,
+                        approved_at=instruction.approved_at,
+                        fallback="MANUAL",
+                    ),
+                )
+            )
+
+    if provenance.metric_id:
+        metric = await knowledge.registry.get(data_source_id, provenance.metric_id)
+        if metric is not None:
+            used.append(
+                KnowledgeUseView(
+                    kind="CERTIFIED_METRIC",
+                    id=str(metric.id),
+                    name=metric.display_name,
+                    summary=metric.business_meaning or metric.description,
+                    usage="GOVERNED_METRIC",
+                    destination_type="METRIC",
+                    origin=origin(
+                        source_candidate_id=metric.source_candidate_id,
+                        destination_type="METRIC",
+                        destination_id=metric.id,
+                        approved_at=metric.approved_at,
+                        fallback="SEEDED" if metric.owner == "bootstrap" else "MANUAL",
+                    ),
+                )
+            )
+    return used
 
 
 def _time_view(planning: TimePlanning | None) -> TimeInterpretationView | None:
@@ -935,6 +1073,9 @@ async def query_analytics(
             model_profile=selected_model_profile.display_name,
             quality=quality_warnings,
             include_sql=include_debug,
+            include_knowledge_details=bool(
+                decision is not None and decision.knowledge_review_allowed
+            ),
             time_planning=time_planning,
         ),
         warnings=result.get("warnings", []),

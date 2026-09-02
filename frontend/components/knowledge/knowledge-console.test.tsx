@@ -119,7 +119,10 @@ async function openDataSources() {
   await userEvent.click(await screen.findByRole("tab", { name: "Data sources" }));
 }
 
-beforeEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState(null, "", "/knowledge");
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -367,6 +370,121 @@ describe("Authorization", () => {
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
     expect(await screen.findByText(/Review authority required/)).toBeTruthy();
+  });
+});
+
+describe("Learning provenance navigation", () => {
+  const clusterId = "77777777-7777-7777-7777-777777777777";
+  const candidateId = "88888888-8888-8888-8888-888888888888";
+  const exampleId = "99999999-9999-9999-9999-999999999999";
+
+  function mockLearningLifecycle() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/connection-refs")) {
+          return { ok: true, status: 200, json: async () => ["DATABASE_URL"] };
+        }
+        if (url.endsWith("/clusters")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: clusterId,
+                canonical_summary: "current and previous compensation",
+                structural_fingerprint: "compensation-history",
+                occurrence_count: 2,
+                successful_count: 2,
+                first_seen_at: "2026-01-01T00:00:00Z",
+                last_seen_at: "2026-01-02T00:00:00Z",
+                status: "ACTIVE",
+                candidate_id: candidateId,
+                candidate_status: "APPROVED",
+                promoted_to_type: "QUERY_EXAMPLE",
+                promoted_to_id: exampleId,
+              },
+            ],
+          };
+        }
+        if (url.endsWith("/candidates")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: candidateId,
+                candidate_type: "QUERY_EXAMPLE",
+                display_name: "Current and previous compensation",
+                description: "A recurring comparison.",
+                status: "APPROVED",
+                evidence_count: 2,
+                successful_evidence_count: 2,
+                expression: null,
+                grain: null,
+                dependencies: [],
+                rejection_reason: null,
+                cluster_id: clusterId,
+                promoted_to_type: "QUERY_EXAMPLE",
+                promoted_to_id: exampleId,
+                detail: [],
+              },
+            ],
+          };
+        }
+        if (url.endsWith("/examples")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: exampleId,
+                question: "Current and previous compensation",
+                semantic_plan: "Compare current compensation to its prior value.",
+                status: "CONFIRMED",
+                schema_fingerprint: "fp-1",
+                approved_at: "2026-01-03T00:00:00Z",
+                source_candidate_id: candidateId,
+                source_cluster_id: clusterId,
+                approved_by: "reviewer",
+              },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      }),
+    );
+  }
+
+  it("moves from a recurring question to its approved candidate", async () => {
+    mockLearningLifecycle();
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Recurring questions" }),
+    );
+    expect(await screen.findByText("Candidate approved")).toBeTruthy();
+    expect(screen.getByText("Approved example")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /View candidate/ }));
+
+    expect(screen.getByRole("tab", { name: "Candidates" }).getAttribute("data-state"))
+      .toBe("active");
+    expect(await screen.findByText("Promoted to")).toBeTruthy();
+  });
+
+  it("moves from an approved candidate to its normalized store", async () => {
+    mockLearningLifecycle();
+    render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "Candidates" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /View promoted knowledge/ }),
+    );
+
+    expect(
+      screen.getByRole("tab", { name: "Approved examples" }).getAttribute("data-state"),
+    ).toBe("active");
+    expect(await screen.findByText(/Compare current compensation/)).toBeTruthy();
   });
 });
 

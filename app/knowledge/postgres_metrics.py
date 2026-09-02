@@ -36,7 +36,7 @@ _SELECT_METRIC = """
     SELECT id, data_source_id, metric_key, display_name, description,
            business_meaning, version, status, semantic_expression, grain,
            unit, null_behavior, owner, temporal_behavior,
-           temporal_dimension_id, approved_at, approved_by
+           temporal_dimension_id, approved_at, approved_by, source_candidate_id
       FROM knowledge.metric_definitions
      WHERE data_source_id = %(data_source_id)s
 """
@@ -46,13 +46,13 @@ _UPSERT_METRIC = """
         (id, data_source_id, metric_key, display_name, description,
          business_meaning, version, status, semantic_expression, grain,
          unit, null_behavior, owner, temporal_behavior,
-         temporal_dimension_id, approved_at, approved_by)
+         temporal_dimension_id, approved_at, approved_by, source_candidate_id)
     VALUES
         (%(id)s, %(data_source_id)s, %(metric_key)s, %(display_name)s,
          %(description)s, %(business_meaning)s, %(version)s, %(status)s,
          %(semantic_expression)s, %(grain)s, %(unit)s, %(null_behavior)s,
          %(owner)s, %(temporal_behavior)s, %(temporal_dimension_id)s,
-         %(approved_at)s, %(approved_by)s)
+         %(approved_at)s, %(approved_by)s, %(source_candidate_id)s)
     ON CONFLICT (data_source_id, metric_key, version)
     DO UPDATE SET
         display_name = EXCLUDED.display_name,
@@ -68,6 +68,7 @@ _UPSERT_METRIC = """
         temporal_dimension_id = EXCLUDED.temporal_dimension_id,
         approved_at = EXCLUDED.approved_at,
         approved_by = EXCLUDED.approved_by,
+        source_candidate_id = EXCLUDED.source_candidate_id,
         updated_at = now()
     RETURNING id
 """
@@ -147,6 +148,7 @@ class PostgresMetricRegistry:
                     "temporal_dimension_id": metric.temporal_dimension_id,
                     "approved_at": metric.approved_at,
                     "approved_by": metric.approved_by,
+                    "source_candidate_id": metric.source_candidate_id,
                 },
             )
             row = await cursor.fetchone()
@@ -332,4 +334,5 @@ def _to_metric(
         dependencies=tuple(children["dependencies"].get(metric_id, [])),
         approved_at=definition["approved_at"],
         approved_by=definition["approved_by"],
+        source_candidate_id=definition["source_candidate_id"],
     )

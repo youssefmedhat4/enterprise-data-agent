@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, HelpCircle } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, ChevronDown, HelpCircle } from "lucide-react";
 
 import { AddToEvaluation } from "@/components/knowledge/add-to-evaluation";
-import type { AnalyticsResponse, LineageMetricNode } from "@/lib/types/analytics";
+import type {
+  AnalyticsResponse,
+  KnowledgeOrigin,
+  LineageMetricNode,
+} from "@/lib/types/analytics";
 
 /**
  * Why this answer.
@@ -50,6 +55,87 @@ export function AnswerTrace({ question, response }: AnswerTraceProps) {
       {open ? (
         <div className="space-y-4 border-t border-border px-4 py-4">
           <p className="text-[13px] text-muted-foreground">{summary(trace)}</p>
+
+          {trace.knowledge_used.length > 0 ? (
+            <Section title="Learned / approved knowledge used">
+              <div className="space-y-3">
+                {trace.knowledge_used.map((item) => (
+                  <div
+                    key={`${item.kind}-${item.id}`}
+                    className="border-s-2 border-primary/35 ps-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2
+                        className="size-3.5 shrink-0 text-primary"
+                        aria-hidden="true"
+                      />
+                      <p className="text-[13px] font-medium">{item.name}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {knowledgeUsage(item.usage)} · {originLabel(item.origin)}
+                    </p>
+                    {item.summary !== "" ? (
+                      <p className="measure mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                        {item.summary}
+                      </p>
+                    ) : null}
+                    {/* Zero recorded repetitions is the absence of evidence,
+                        not evidence of none, so it is left unsaid. */}
+                    {item.origin.evidence_count ? (
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Observed {item.origin.evidence_count} times ·{" "}
+                        {item.origin.successful_evidence_count ?? 0} successful
+                      </p>
+                    ) : null}
+                    {item.origin.review_decision !== null ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Human review: {item.origin.review_decision.toLowerCase()}
+                      </p>
+                    ) : null}
+                    {item.origin.candidate_id !== null ? (
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        <Link
+                          className="font-medium text-primary hover:underline"
+                          href={knowledgeLink(
+                            response.data_source_id,
+                            "candidates",
+                            "candidate",
+                            item.origin.candidate_id,
+                          )}
+                        >
+                          View candidate
+                        </Link>
+                        {item.origin.cluster_id !== null ? (
+                          <Link
+                            className="font-medium text-primary hover:underline"
+                            href={knowledgeLink(
+                              response.data_source_id,
+                              "questions",
+                              "cluster",
+                              item.origin.cluster_id,
+                            )}
+                          >
+                            View recurring question
+                          </Link>
+                        ) : null}
+                        <Link
+                          className="font-medium text-primary hover:underline"
+                          href={knowledgeLink(
+                            response.data_source_id,
+                            destinationSection(item.destination_type),
+                            "knowledge",
+                            item.id,
+                          )}
+                        >
+                          View promoted knowledge
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          ) : null}
 
           <Section title="Answer path">
             <Row label="Data source" value={trace.data_source} />
@@ -101,16 +187,6 @@ export function AnswerTrace({ question, response }: AnswerTraceProps) {
             <Section title="Metrics">
               {trace.metric_lineage.map((node) => (
                 <MetricTree key={node.label} node={node} depth={0} />
-              ))}
-            </Section>
-          ) : null}
-
-          {trace.business_instructions.length > 0 ? (
-            <Section title="Business rules applied">
-              {trace.business_instructions.map((title) => (
-                <p key={title} className="text-[13px]">
-                  {title}
-                </p>
               ))}
             </Section>
           ) : null}
@@ -184,13 +260,56 @@ function summary(trace: NonNullable<AnalyticsResponse["trace"]>): string {
     trace.tables.length > 0
       ? ` It read ${trace.tables.length} table${trace.tables.length === 1 ? "" : "s"}.`
       : "";
-  const rules =
-    trace.business_instructions.length > 0
-      ? ` ${trace.business_instructions.length} approved business rule${
-          trace.business_instructions.length === 1 ? "" : "s"
+  const knowledge =
+    trace.knowledge_used.length > 0
+      ? ` ${trace.knowledge_used.length} approved knowledge item${
+          trace.knowledge_used.length === 1 ? "" : "s"
         } shaped it.`
       : "";
-  return `Answered from ${source} using ${path}.${tables}${rules}`;
+  return `Answered from ${source} using ${path}.${tables}${knowledge}`;
+}
+
+function knowledgeUsage(usage: string): string {
+  if (usage === "PLANNING_CONTEXT") return "Used as an example for planning";
+  if (usage === "GOVERNED_METRIC") return "Used as the governed metric";
+  return "Business rule applied";
+}
+
+/**
+ * What actually created this knowledge.
+ *
+ * A learned item is only described as coming from recurring questions when a
+ * recurring question is what proposed it. Some candidates are raised without a
+ * cluster behind them, and claiming a pattern that never existed would be the
+ * one thing this panel must not do.
+ */
+function originLabel(origin: KnowledgeOrigin): string {
+  if (origin.type === "LEARNED") {
+    return origin.cluster_id !== null
+      ? "learned from recurring questions"
+      : "learned from a reviewed proposal";
+  }
+  if (origin.type === "SEEDED") return "seeded definition";
+  if (origin.type === "DISCOVERY") return "confirmed from discovery";
+  if (origin.type === "MANUAL") return "manually authored";
+  return "origin unavailable";
+}
+
+function destinationSection(destination: string): string {
+  if (destination === "QUERY_EXAMPLE") return "examples";
+  if (destination === "BUSINESS_RULE") return "rules";
+  if (destination === "METRIC") return "metrics";
+  return "candidates";
+}
+
+function knowledgeLink(
+  dataSourceId: string,
+  section: string,
+  key: string,
+  id: string,
+): string {
+  const params = new URLSearchParams({ dataSource: dataSourceId, section, [key]: id });
+  return `/knowledge?${params.toString()}`;
 }
 
 /** Local wall-clock, because the period was decided in the datasource's zone. */

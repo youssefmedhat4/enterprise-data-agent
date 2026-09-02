@@ -38,6 +38,7 @@ class AgentState(TypedDict, total=False):
     semantic_definition_ids: list[str]
     semantic_measures: list[SemanticMeasure]
     semantic_measure_ids: list[str]
+    applied_instruction_ids: list[str]
     applied_instruction_titles: list[str]
     applied_example_ids: list[str]
     semantic_provider: str

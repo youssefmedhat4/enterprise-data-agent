@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MotionConfig, motion } from "motion/react";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import {
   AlertTriangle,
+  ArrowRight,
+  BookOpenCheck,
   CalendarClock,
   ClipboardCheck,
   Database,
@@ -49,6 +51,7 @@ import {
 } from "@/lib/datasources/datasources";
 import {
   fetchCandidates,
+  fetchBusinessInstructions,
   fetchCertifiedMetrics,
   fetchClusters,
   fetchColumnPreviews,
@@ -62,6 +65,7 @@ import {
   reviewSemantic,
   scanDataSource,
   type CertifiedMetric,
+  type BusinessInstruction,
   type KnowledgeCandidate,
   type KnowledgeCluster,
   type QueryExample,
@@ -92,11 +96,16 @@ export function KnowledgeConsole({
   dataSources = [DEFAULT_DATA_SOURCE],
   onDataSourcesChanged,
 }: KnowledgeConsoleProps) {
+  // Deliberately not seeded from the URL during render: this page is
+  // prerendered, and a first paint that disagreed with the server's would be a
+  // hydration mismatch. The deep link is applied on mount instead.
   const [section, setSection] = useState("overview");
+  const [focusId, setFocusId] = useState<string | null>(null);
   const [clusters, setClusters] = useState<KnowledgeCluster[]>([]);
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
   const [metrics, setMetrics] = useState<CertifiedMetric[]>([]);
   const [examples, setExamples] = useState<QueryExample[]>([]);
+  const [instructions, setInstructions] = useState<BusinessInstruction[]>([]);
   const [semantics, setSemantics] = useState<SemanticProposal[]>([]);
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [connectionRefs, setConnectionRefs] = useState<string[]>([]);
@@ -112,42 +121,68 @@ export function KnowledgeConsole({
   const [loading, setLoading] = useState(true);
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const [previewsFor, setPreviewsFor] = useState<string | null>(null);
+  const latestSource = useRef(dataSourceId);
+
+  useEffect(() => {
+    const requested = requestedSection();
+    if (requested !== null) setSection(requested);
+    setFocusId(requestedFocus());
+  }, []);
 
   const load = useCallback(async () => {
+    // Which datasource this run was for. Selecting another one starts a second
+    // run, and the slower of the two must not overwrite the newer answer with
+    // knowledge belonging to a different database.
+    const requestedFor = dataSourceId;
+    const superseded = () => latestSource.current !== requestedFor;
+    latestSource.current = requestedFor;
     try {
       const [
         nextClusters,
         nextCandidates,
         nextMetrics,
         nextExamples,
+        nextInstructions,
         nextSemantics,
       ] = await Promise.all([
         fetchClusters(dataSourceId),
         fetchCandidates(dataSourceId),
         fetchCertifiedMetrics(dataSourceId),
         fetchQueryExamples(dataSourceId),
+        fetchBusinessInstructions(dataSourceId),
         fetchSemantics(dataSourceId),
       ]);
+      if (superseded()) return;
       setClusters(nextClusters);
       setCandidates(nextCandidates);
       setMetrics(nextMetrics);
       setExamples(nextExamples);
+      setInstructions(nextInstructions);
       setSemantics(nextSemantics);
       setDenied(false);
     } catch (error) {
+      if (superseded()) return;
       if (error instanceof KnowledgeAccessError && error.status === 403) {
         setDenied(true);
         return;
       }
       setNotice("The knowledge service is unavailable.");
     } finally {
-      setLoading(false);
+      if (!superseded()) setLoading(false);
     }
   }, [dataSourceId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading || focusId === null) return;
+    document.getElementById(`${focusPrefix(section)}-${focusId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [focusId, loading, section]);
 
   useEffect(() => {
     setPreviews({});
@@ -292,6 +327,20 @@ export function KnowledgeConsole({
     (item) => item.status === "PROPOSED",
   );
 
+  const navigate = useCallback(
+    (nextSection: string, nextFocus: string | null = null) => {
+      setSection(nextSection);
+      setFocusId(nextFocus);
+      const params = new URLSearchParams(window.location.search);
+      params.set("dataSource", dataSourceId);
+      params.set("section", nextSection);
+      for (const key of ["candidate", "cluster", "knowledge"]) params.delete(key);
+      if (nextFocus !== null) params.set(focusKey(nextSection), nextFocus);
+      window.history.replaceState(null, "", `/knowledge?${params.toString()}`);
+    },
+    [dataSourceId],
+  );
+
   const source =
     dataSources.find((candidate) => candidate.id === dataSourceId) ??
     DEFAULT_DATA_SOURCE;
@@ -338,6 +387,12 @@ export function KnowledgeConsole({
         value: "examples",
         label: "Approved examples",
         icon: FileCode2,
+        group: "LEARNING",
+      },
+      {
+        value: "rules",
+        label: "Business rules",
+        icon: BookOpenCheck,
         group: "LEARNING",
       },
       {
@@ -428,14 +483,14 @@ export function KnowledgeConsole({
         {/* ------------------------------------------------- navigation + body */}
         <TabsPrimitive.Root
           value={section}
-          onValueChange={setSection}
+          onValueChange={(value) => navigate(value)}
           orientation="vertical"
           className="mt-8 flex flex-col gap-5 lg:flex-row lg:gap-10"
         >
           <KnowledgeNav
             sections={sections}
             value={section}
-            onValueChange={setSection}
+            onValueChange={(value) => navigate(value)}
           />
 
           <div className="min-w-0 max-w-[1180px] flex-1">
@@ -445,7 +500,7 @@ export function KnowledgeConsole({
                 <KnowledgeOverview
                   source={source}
                   loading={loading}
-                  onNavigate={setSection}
+                  onNavigate={(value) => navigate(value)}
                   counts={{
                     proposals: proposals.length,
                     pendingCandidates: pendingCandidates.length,
@@ -676,7 +731,12 @@ export function KnowledgeConsole({
                 ) : (
                   <div className="space-y-4">
                     {clusters.map((cluster) => (
-                      <Panel interactive key={cluster.id} className="p-5">
+                      <Panel
+                        interactive
+                        key={cluster.id}
+                        id={`cluster-${cluster.id}`}
+                        className="p-5"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <p className="min-w-0 text-[14px] font-medium text-foreground">
                             {cluster.canonicalSummary}
@@ -695,6 +755,29 @@ export function KnowledgeConsole({
                         <p className="mt-2 truncate font-mono text-[12px] text-muted-foreground">
                           {cluster.structuralFingerprint}
                         </p>
+                        <dl className="mt-3 border-t border-hairline pt-3">
+                          <DetailRow
+                            label="Learning"
+                            value={learningStatus(cluster)}
+                          />
+                          {cluster.promotedToType !== null ? (
+                            <DetailRow
+                              label="Promoted to"
+                              value={destinationLabel(cluster.promotedToType)}
+                            />
+                          ) : null}
+                        </dl>
+                        {cluster.candidateId !== null ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="mt-2"
+                            onClick={() => navigate("candidates", cluster.candidateId)}
+                          >
+                            View candidate
+                            <ArrowRight className="size-3.5" aria-hidden="true" />
+                          </Button>
+                        ) : null}
                       </Panel>
                     ))}
                   </div>
@@ -727,6 +810,7 @@ export function KnowledgeConsole({
                         busy={busyId === candidate.id}
                         onApprove={() => void review(candidate.id, "approve")}
                         onReject={() => void review(candidate.id, "reject")}
+                        onNavigate={navigate}
                       />
                     ))}
                   </div>
@@ -752,7 +836,12 @@ export function KnowledgeConsole({
                 ) : (
                   <div className="space-y-4">
                     {metrics.map((metric) => (
-                      <Panel interactive key={metric.metricKey} className="p-5">
+                      <Panel
+                        interactive
+                        key={metric.metricKey}
+                        id={`knowledge-${metric.id}`}
+                        className="p-5"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <div className="min-w-0">
                             <h3 className="text-[15px] font-medium text-foreground">
@@ -818,7 +907,12 @@ export function KnowledgeConsole({
                 ) : (
                   <div className="space-y-4">
                     {examples.map((example) => (
-                      <Panel interactive key={example.id} className="p-5">
+                      <Panel
+                        interactive
+                        key={example.id}
+                        id={`knowledge-${example.id}`}
+                        className="p-5"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <p className="min-w-0 text-[14px] font-medium text-foreground">
                             {example.question}
@@ -834,6 +928,64 @@ export function KnowledgeConsole({
                         ) : null}
                         {/* SQL is deliberately not shown: it describes tables and
                             columns beyond what listing an example requires. */}
+                      </Panel>
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
+
+            {/* ------------------------------------------------ business rules */}
+            <TabsPrimitive.Content value="rules" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Business rules"
+                  description="Human-approved definitions supplied only when a question touches the concepts they govern."
+                />
+                {loading ? (
+                  <SkeletonList rows={2} />
+                ) : instructions.length === 0 ? (
+                  <EmptyState
+                    icon={BookOpenCheck}
+                    title="No approved business rules yet"
+                    description="Rules appear here after a reviewer authors or approves them."
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {instructions.map((instruction) => (
+                      <Panel
+                        interactive
+                        key={instruction.id}
+                        id={`knowledge-${instruction.id}`}
+                        className="p-5"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <h3 className="text-[15px] font-medium text-foreground">
+                            {instruction.title}
+                          </h3>
+                          <StatusBadge tone={toneForStatus(instruction.status)} dot>
+                            {instruction.status}
+                          </StatusBadge>
+                        </div>
+                        <p className="measure mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                          {instruction.instruction}
+                        </p>
+                        <dl className="mt-4 border-t border-hairline pt-3">
+                          <DetailRow
+                            label="Origin"
+                            value={
+                              instruction.sourceCandidateId === null
+                                ? "Manually authored"
+                                : "Learned from recurring questions"
+                            }
+                          />
+                          {instruction.semanticConcepts.length > 0 ? (
+                            <DetailRow
+                              label="Concepts"
+                              value={instruction.semanticConcepts.join(", ")}
+                            />
+                          ) : null}
+                        </dl>
                       </Panel>
                     ))}
                   </div>
@@ -878,6 +1030,62 @@ export function KnowledgeConsole({
       </motion.section>
     </MotionConfig>
   );
+}
+
+const DEEP_LINK_SECTIONS = new Set([
+  "overview",
+  "sources",
+  "review",
+  "confirmed",
+  "questions",
+  "candidates",
+  "metrics",
+  "examples",
+  "rules",
+  "evaluations",
+  "quality",
+  "time",
+]);
+
+/** The section a deep link asked for, or null to keep whatever is open. */
+function requestedSection(): string | null {
+  if (typeof window === "undefined") return null;
+  const requested = new URLSearchParams(window.location.search).get("section");
+  return requested !== null && DEEP_LINK_SECTIONS.has(requested) ? requested : null;
+}
+
+function requestedFocus(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("candidate") ?? params.get("cluster") ?? params.get("knowledge");
+}
+
+function focusKey(section: string): string {
+  if (section === "candidates") return "candidate";
+  if (section === "questions") return "cluster";
+  return "knowledge";
+}
+
+function focusPrefix(section: string): string {
+  if (section === "candidates") return "candidate";
+  if (section === "questions") return "cluster";
+  return "knowledge";
+}
+
+function learningStatus(cluster: KnowledgeCluster): string {
+  if (cluster.candidateStatus === "APPROVED") return "Candidate approved";
+  if (cluster.candidateStatus === "REJECTED") return "Candidate rejected";
+  if (cluster.candidateStatus === "PROPOSED") return "Candidate proposed";
+  return cluster.occurrenceCount < 2
+    ? "Waiting for more evidence"
+    : "No reusable knowledge proposed";
+}
+
+function destinationLabel(type: string): string {
+  if (type === "QUERY_EXAMPLE") return "Approved example";
+  if (type === "BUSINESS_RULE") return "Business rule";
+  if (type === "METRIC") return "Certified metric";
+  return type.toLowerCase().replaceAll("_", " ");
 }
 
 const FIELD_CLASS =

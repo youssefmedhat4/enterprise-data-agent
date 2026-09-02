@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any, cast
 from uuid import UUID
 
@@ -71,10 +72,12 @@ class PostgresGuidanceStore:
                 "INSERT INTO knowledge.approved_query_examples"
                 " (id, data_source_id, question, normalized_question,"
                 "  semantic_plan, query_pattern, schema_fingerprint, status,"
-                "  origin_query_id, source_cluster_id, approved_at)"
+                "  origin_query_id, source_cluster_id, source_candidate_id,"
+                "  approved_by, approved_at)"
                 " VALUES (%(id)s, %(data_source_id)s, %(question)s,"
                 "  %(normalized)s, %(plan)s, %(pattern)s, %(fingerprint)s,"
-                "  %(status)s, %(origin)s, %(cluster_id)s, %(approved_at)s)"
+                "  %(status)s, %(origin)s, %(cluster_id)s, %(candidate_id)s,"
+                "  %(approved_by)s, %(approved_at)s)"
                 " ON CONFLICT (id) DO NOTHING",
                 {
                     "id": example.id,
@@ -87,6 +90,8 @@ class PostgresGuidanceStore:
                     "status": example.status.value,
                     "origin": example.source_query_id,
                     "cluster_id": example.source_cluster_id,
+                    "candidate_id": example.source_candidate_id,
+                    "approved_by": example.approved_by,
                     "approved_at": example.approved_at,
                 },
             )
@@ -103,16 +108,20 @@ class PostgresGuidanceStore:
                 "INSERT INTO knowledge.business_instructions"
                 " (id, data_source_id, title, instruction, semantic_concepts,"
                 "  metric_keys, status, source_candidate_id, schema_fingerprint,"
-                "  approved_at)"
+                "  approved_at, approved_by)"
                 " VALUES (%(id)s, %(data_source_id)s, %(title)s, %(instruction)s,"
                 "  %(concepts)s, %(metric_keys)s, %(status)s, %(candidate)s,"
-                "  %(fingerprint)s, %(approved_at)s)"
+                "  %(fingerprint)s, %(approved_at)s, %(approved_by)s)"
                 " ON CONFLICT (data_source_id, title) DO UPDATE SET"
                 "  instruction = EXCLUDED.instruction,"
                 "  semantic_concepts = EXCLUDED.semantic_concepts,"
                 "  metric_keys = EXCLUDED.metric_keys,"
                 "  status = EXCLUDED.status,"
-                "  updated_at = now()",
+                "  source_candidate_id = EXCLUDED.source_candidate_id,"
+                "  approved_by = EXCLUDED.approved_by,"
+                "  approved_at = EXCLUDED.approved_at,"
+                "  updated_at = now()"
+                " RETURNING id, approved_at",
                 {
                     "id": instruction.id,
                     "data_source_id": instruction.data_source_id,
@@ -124,9 +133,17 @@ class PostgresGuidanceStore:
                     "candidate": instruction.source_candidate_id,
                     "fingerprint": instruction.schema_fingerprint,
                     "approved_at": instruction.approved_at,
+                    "approved_by": instruction.approved_by,
                 },
             )
-        return instruction
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - INSERT/UPDATE always returns
+            raise GuidanceError("The approved business instruction was not stored.")
+        return replace(
+            instruction,
+            id=row["id"],
+            approved_at=row["approved_at"],
+        )
 
     # -- retrieval ----------------------------------------------------------
 
@@ -209,7 +226,7 @@ class PostgresGuidanceStore:
         rows = await self._fetch(
             "SELECT id, data_source_id, question, semantic_plan, query_pattern,"
             " schema_fingerprint, status, origin_query_id, source_cluster_id,"
-            " approved_at, created_at"
+            " source_candidate_id, approved_by, approved_at, created_at"
             " FROM knowledge.approved_query_examples"
             " WHERE data_source_id = %(data_source_id)s"
             " ORDER BY created_at DESC",
@@ -226,6 +243,8 @@ class PostgresGuidanceStore:
                 status=ApprovalStatus(row["status"]),
                 source_query_id=row["origin_query_id"],
                 source_cluster_id=row["source_cluster_id"],
+                source_candidate_id=row["source_candidate_id"],
+                approved_by=row["approved_by"],
                 approved_at=row["approved_at"] or row["created_at"],
             )
             for row in rows
@@ -235,7 +254,7 @@ class PostgresGuidanceStore:
         rows = await self._fetch(
             "SELECT id, data_source_id, title, instruction, semantic_concepts,"
             " metric_keys, status, source_candidate_id, schema_fingerprint,"
-            " approved_at, created_at"
+            " approved_at, approved_by, created_at"
             " FROM knowledge.business_instructions"
             " WHERE data_source_id = %(data_source_id)s"
             " ORDER BY title",
@@ -252,6 +271,7 @@ class PostgresGuidanceStore:
                 status=ApprovalStatus(row["status"]),
                 schema_fingerprint=row["schema_fingerprint"],
                 source_candidate_id=row["source_candidate_id"],
+                approved_by=row["approved_by"],
                 approved_at=row["approved_at"] or row["created_at"],
             )
             for row in rows

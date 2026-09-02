@@ -172,6 +172,11 @@ async def test_full_learning_loop_from_repetition_to_governed_retrieval() -> Non
     assert set(promoted.dependencies) == {"active_headcount", "annual_base_payroll"}
     assert promoted.semantic_expression == "(annual_base_payroll / active_headcount)"
     assert promoted.approved_by == "reviewer"
+    assert promoted.source_candidate_id == candidate.id
+    reviewed = await store.by_id(SOURCE_A, candidate.id)
+    assert reviewed is not None
+    assert reviewed.promoted_to_type == "METRIC"
+    assert reviewed.promoted_to_id == promoted.id
 
     # 5. Reindexing makes it retrievable to future requests.
     await retriever.index(SOURCE_A, await registry.certified(SOURCE_A))
@@ -295,6 +300,11 @@ async def test_reviewed_business_rule_is_persisted_and_retrieved_by_relevance() 
     )
 
     assert approved.source_candidate_id == candidate.id
+    assert approved.approved_by == "reviewer"
+    reviewed = await store.by_id(SOURCE_A, candidate.id)
+    assert reviewed is not None
+    assert reviewed.promoted_to_type == "BUSINESS_RULE"
+    assert reviewed.promoted_to_id == approved.id
     payroll = await guidance.relevant_instructions(
         SOURCE_A, "What is our current annual payroll?"
     )

@@ -89,6 +89,8 @@ class RegisteredMetric(StrictContract):
     temporal_dimension_id: UUID | None = None
     approved_at: datetime | None = None
     approved_by: str | None = None
+    #: Candidate history that created this definition, or null for seeded/manual.
+    source_candidate_id: UUID | None = None
 
     @property
     def is_governed_runtime_visible(self) -> bool:
