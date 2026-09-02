@@ -73,7 +73,7 @@ export function AddToEvaluation({ question, response }: AddToEvaluationProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        className="inline-flex items-center gap-1.5 rounded-md text-[11px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
         <ClipboardPlus className="size-3" aria-hidden="true" />
         Add to evaluation set
@@ -82,45 +82,50 @@ export function AddToEvaluation({ question, response }: AddToEvaluationProps) {
   }
 
   return (
-    <div className="rounded-lg border border-border p-3">
-      <p className="text-[13px] font-medium">Add to evaluation set</p>
-      <p className="mt-1 text-[12px] text-muted-foreground">
+    <div className="rounded-xl border border-hairline bg-surface p-4">
+      <p className="text-[13.5px] font-medium text-foreground">
+        Add to evaluation set
+      </p>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
         Confirm the answer below is the one this question should always give.
       </p>
-      <div className="mt-3 space-y-2">
-        <label className="block text-[11px] text-muted-foreground">
+      <div className="mt-4 space-y-3">
+        <label className="block text-[12.5px] font-medium text-muted-foreground">
           Name
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Active headcount"
-            className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+            className={FIELD_CLASS}
           />
         </label>
-        <label className="block text-[11px] text-muted-foreground">
+        <label className="block text-[12.5px] font-medium text-muted-foreground">
           {suggestion.expectation === "ROW_COUNT" ? "Expected row count" : "Expected value"}
           <input
             value={expected}
             onChange={(event) => setExpected(event.target.value)}
             disabled={suggestion.expectation === "EMPTY"}
-            className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 font-mono text-[13px] text-foreground disabled:opacity-50"
+            className={`${FIELD_CLASS} font-mono disabled:opacity-50`}
           />
         </label>
       </div>
       {error !== null ? (
-        <p className="mt-2 text-[12px] text-muted-foreground">{error}</p>
+        <p className="mt-3 text-[12.5px] text-muted-foreground">{error}</p>
       ) : null}
-      <div className="mt-3 flex gap-2">
+      <div className="mt-4 flex gap-2">
         <Button size="sm" disabled={state === "saving"} onClick={() => void save()}>
           {state === "saving" ? "Saving…" : "Save case"}
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
           Cancel
         </Button>
       </div>
     </div>
   );
 }
+
+const FIELD_CLASS =
+  "mt-1.5 h-8 w-full rounded-lg border border-border bg-background px-2.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 /**
  * What kind of comparison this answer supports.

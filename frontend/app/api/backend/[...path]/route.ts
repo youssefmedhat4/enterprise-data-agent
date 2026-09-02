@@ -21,18 +21,37 @@ const ALLOWED_PATHS = [
   "knowledge/connection-refs",
 ];
 
+const ID = "[0-9a-f-]{36}";
+
 /**
  * Knowledge administration paths, matched by shape rather than listed one by
- * one because they carry a datasource id and a resource id. Kept as an explicit
- * pattern so the route still refuses anything it does not recognise: the
+ * one because they carry a datasource id and a resource id. Kept as explicit
+ * patterns so the route still refuses anything it does not recognise: the
  * backend enforces review authority regardless, but the proxy should not be a
  * general tunnel to it.
+ *
+ * The evaluation, quality and time surfaces are listed here for the same reason
+ * as the rest — without an entry the browser gets a 404 from this route and the
+ * section reports the service as unavailable, however healthy the backend is.
  */
-const KNOWLEDGE_PATH =
-  /^knowledge\/data-sources(\/[0-9a-f-]{36}\/(semantics|clusters|candidates|metrics|examples|scan|reindex)(\/[0-9a-f-]{36}\/review)?)?$/;
+const KNOWLEDGE_PATHS = [
+  `knowledge/data-sources`,
+  `knowledge/data-sources/${ID}/(semantics|clusters|candidates|metrics|examples|scan|reindex)`,
+  `knowledge/data-sources/${ID}/(semantics|candidates)/${ID}/review`,
+  `knowledge/data-sources/${ID}/quality`,
+  `knowledge/data-sources/${ID}/quality/run`,
+  `knowledge/data-sources/${ID}/quality/${ID}/toggle`,
+  `knowledge/data-sources/${ID}/(time-policy|temporal-dimensions|time-preview)`,
+  `knowledge/data-sources/${ID}/evaluation-cases`,
+  `knowledge/data-sources/${ID}/evaluation-cases/${ID}`,
+  `knowledge/data-sources/${ID}/evaluation-runs`,
+].map((pattern) => new RegExp(`^${pattern}$`));
 
 function isAllowed(target: string): boolean {
-  return ALLOWED_PATHS.includes(target) || KNOWLEDGE_PATH.test(target);
+  return (
+    ALLOWED_PATHS.includes(target) ||
+    KNOWLEDGE_PATHS.some((pattern) => pattern.test(target))
+  );
 }
 
 /** Long enough for a model-backed analytical query to finish. */
@@ -127,3 +146,6 @@ async function proxy(
 
 export const GET = proxy;
 export const POST = proxy;
+// Confirming a calendar and archiving an evaluation case are both PUTs. Without
+// this the browser gets a 405 and the reviewer's decision silently never lands.
+export const PUT = proxy;

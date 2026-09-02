@@ -60,18 +60,20 @@ export default function KnowledgePage() {
 
   return (
     <div className="min-h-dvh bg-background">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border bg-background/85 px-6 py-3 backdrop-blur">
+      {/* A fixed height, because the section navigation sticks underneath it
+          and needs a number to clear. */}
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-2.5 border-b border-hairline bg-background/80 px-6 backdrop-blur-md lg:px-10">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 rounded-md text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-md text-[13px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           <ArrowLeft className="size-3.5" aria-hidden="true" />
           Workspace
         </Link>
-        <span aria-hidden="true" className="text-muted-foreground">
+        <span aria-hidden="true" className="text-muted-foreground/50">
           /
         </span>
-        <span className="text-[13px] font-medium">Knowledge</span>
+        <span className="text-[13px] font-medium text-foreground">Knowledge</span>
         <div className="ms-auto">
           <DataSourceSelector
             value={dataSourceId}

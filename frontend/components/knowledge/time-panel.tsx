@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Check, Clock } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import {
+  EmptyState,
+  Panel,
+  Skeleton,
+  StatusBadge,
+  toneForStatus,
+} from "@/components/knowledge/shell/primitives";
 import { Button } from "@/components/ui/button";
 import { KnowledgeAccessError } from "@/lib/knowledge/knowledge";
 import {
@@ -22,9 +28,13 @@ import {
  * This database's calendar, and the columns that carry time.
  *
  * Everything is structured: a timezone, a week start, a fiscal start, a naming
- * convention. The preview resolves a phrase without answering a question, so a
- * reviewer can see that "fiscal YTD" means July here before an answer depends
- * on it — and it costs no model call.
+ * convention. Presented as a decision a person makes rather than a set of
+ * knobs — each field says what it changes, and the sentence underneath spells
+ * out the consequence in the same words a reader would use.
+ *
+ * The preview resolves a phrase without answering a question, so a reviewer can
+ * see that "fiscal YTD" means July here before an answer depends on it — and it
+ * costs no model call.
  */
 interface TimePanelProps {
   dataSourceId: string;
@@ -53,6 +63,9 @@ const ZONES = [
   "Europe/London",
   "America/New_York",
 ];
+
+const FIELD_CLASS =
+  "mt-1.5 h-8 w-full rounded-lg border border-border bg-background px-2.5 text-[13px] text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function TimePanel({ dataSourceId }: TimePanelProps) {
   const [policy, setPolicy] = useState<TimePolicy | null>(null);
@@ -115,37 +128,60 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
 
   if (error !== null && policy === null) {
     return (
-      <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+      <Panel className="px-4 py-3 text-[13px] text-muted-foreground">
         {error}
-      </p>
+      </Panel>
     );
   }
   if (policy === null) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-5">
+        <Panel className="space-y-4 p-5">
+          <Skeleton className="h-4 w-32" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[0, 1, 2, 3].map((index) => (
+              <Skeleton key={index} className="h-8 w-full" />
+            ))}
+          </div>
+        </Panel>
+      </div>
+    );
   }
 
+  const fiscalMonth = MONTHS[policy.fiscalYearStartMonth - 1];
+
   return (
-    <div className="space-y-5">
-      <section className="space-y-3 rounded-lg border border-border p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="flex items-center gap-2 text-sm font-medium">
-            <CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
-            Time policy
-          </h2>
-          <Badge variant={policy.status === "CONFIRMED" ? "default" : "secondary"}>
+    <div className="space-y-6">
+      {/* --------------------------------------------------------- calendar */}
+      <Panel className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-[14px] font-medium text-foreground">
+            <CalendarClock
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            Calendar
+          </h3>
+          {/* An unconfirmed calendar is not neutral: it is why a fiscal
+              question gets declined, so it reads as something to act on. */}
+          <StatusBadge
+            tone={policy.status === "CONFIRMED" ? "positive" : "attention"}
+            dot
+          >
             {policy.status}
-          </Badge>
+          </StatusBadge>
         </div>
+
         {policy.status !== "CONFIRMED" ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="measure mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
             Nobody has confirmed this calendar. Calendar periods still work;
             fiscal questions are declined rather than answered from an assumed
             January start.
           </p>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-[11px] text-muted-foreground">
+        <div className="mt-4 grid gap-4 border-t border-hairline pt-4 sm:grid-cols-2">
+          <label className="text-[12.5px] font-medium text-muted-foreground">
             Time zone
             <input
               list="time-zones"
@@ -153,7 +189,7 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
               onChange={(event) =>
                 setPolicy({ ...policy, timezone: event.target.value })
               }
-              className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+              className={FIELD_CLASS}
             />
             <datalist id="time-zones">
               {ZONES.map((zone) => (
@@ -161,14 +197,14 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
               ))}
             </datalist>
           </label>
-          <label className="text-[11px] text-muted-foreground">
+          <label className="text-[12.5px] font-medium text-muted-foreground">
             Week starts
             <select
               value={policy.weekStart}
               onChange={(event) =>
                 setPolicy({ ...policy, weekStart: event.target.value as WeekStart })
               }
-              className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+              className={FIELD_CLASS}
             >
               {WEEKDAYS.map((day) => (
                 <option key={day} value={day}>
@@ -177,7 +213,7 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
               ))}
             </select>
           </label>
-          <label className="text-[11px] text-muted-foreground">
+          <label className="text-[12.5px] font-medium text-muted-foreground">
             Fiscal year starts
             <select
               value={policy.fiscalYearStartMonth}
@@ -187,7 +223,7 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
                   fiscalYearStartMonth: Number(event.target.value),
                 })
               }
-              className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+              className={FIELD_CLASS}
             >
               {MONTHS.map((month, index) => (
                 <option key={month} value={index + 1}>
@@ -196,7 +232,7 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
               ))}
             </select>
           </label>
-          <label className="text-[11px] text-muted-foreground">
+          <label className="text-[12.5px] font-medium text-muted-foreground">
             Fiscal year named after
             <select
               value={policy.fiscalYearLabel}
@@ -206,96 +242,113 @@ export function TimePanel({ dataSourceId }: TimePanelProps) {
                   fiscalYearLabel: event.target.value as FiscalYearLabel,
                 })
               }
-              className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+              className={FIELD_CLASS}
             >
               <option value="START_YEAR">the year it starts</option>
               <option value="END_YEAR">the year it ends</option>
             </select>
           </label>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {policy.fiscalYearLabel === "END_YEAR"
-            ? `A year running ${MONTHS[policy.fiscalYearStartMonth - 1]} 2026 to ${MONTHS[policy.fiscalYearStartMonth - 1]} 2027 is called FY2027 here.`
-            : `A year running ${MONTHS[policy.fiscalYearStartMonth - 1]} 2026 to ${MONTHS[policy.fiscalYearStartMonth - 1]} 2027 is called FY2026 here.`}
+
+        {/* The consequence, stated the way someone would say it aloud. */}
+        <p className="measure mt-4 rounded-lg bg-muted/50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+          A year running {fiscalMonth} 2026 to {fiscalMonth} 2027 is called{" "}
+          <span className="font-medium text-foreground">
+            {policy.fiscalYearLabel === "END_YEAR" ? "FY2027" : "FY2026"}
+          </span>{" "}
+          here.
         </p>
-        <Button size="sm" disabled={busy} onClick={() => void save()}>
+
+        <Button size="sm" className="mt-4" disabled={busy} onClick={() => void save()}>
           <Check className="size-3.5" aria-hidden="true" />
           Confirm calendar
         </Button>
-      </section>
+      </Panel>
 
-      <section className="space-y-2">
-        <h2 className="label-xs text-muted-foreground">Temporal dimensions</h2>
+      {/* ----------------------------------------------- temporal dimensions */}
+      <section className="space-y-3">
+        <h3 className="text-[14px] font-medium text-foreground">
+          Temporal dimensions
+        </h3>
         {dimensions.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-            No date columns have been reviewed for this database yet. Until one
-            is, time phrases are answered exactly as they were before.
-          </p>
+          <EmptyState
+            icon={Clock}
+            title="No date columns reviewed yet"
+            description="Until one is confirmed, time phrases are answered exactly as they were before."
+          />
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {dimensions.map((dimension) => (
-              <li
-                key={dimension.id}
-                className="flex items-start justify-between gap-3 rounded-lg border border-border p-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">
-                    {dimension.concept}
-                    {dimension.isDefaultForEntity ? (
-                      <span className="ms-2 text-xs text-muted-foreground">
-                        default for {dimension.entity}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {dimension.table}.{dimension.column} · {dimension.role} ·{" "}
-                    {dimension.storage}
-                  </p>
-                </div>
-                <Badge
-                  variant={
-                    dimension.status === "CONFIRMED"
-                      ? "default"
-                      : dimension.status === "STALE"
-                        ? "destructive"
-                        : "secondary"
-                  }
+              <li key={dimension.id}>
+                <Panel
+                  interactive
+                  className="flex flex-wrap items-start justify-between gap-4 p-4"
                 >
-                  {dimension.status}
-                </Badge>
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-medium text-foreground">
+                      {dimension.concept}
+                      {dimension.isDefaultForEntity ? (
+                        <span className="ms-2 text-[12px] font-normal text-muted-foreground">
+                          default for {dimension.entity}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-1 font-mono text-[12px] text-muted-foreground">
+                      {dimension.table}.{dimension.column} · {dimension.role} ·{" "}
+                      {dimension.storage}
+                    </p>
+                  </div>
+                  <StatusBadge tone={toneForStatus(dimension.status)} dot>
+                    {dimension.status}
+                  </StatusBadge>
+                </Panel>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section className="space-y-2 rounded-lg border border-border p-4">
-        <h2 className="flex items-center gap-2 text-sm font-medium">
+      {/* ---------------------------------------------------------- preview */}
+      <Panel className="p-5">
+        <h3 className="flex items-center gap-2 text-[14px] font-medium text-foreground">
           <Clock className="size-4 text-muted-foreground" aria-hidden="true" />
           What does a phrase mean here?
-        </h2>
-        <div className="flex flex-wrap gap-2">
+        </h3>
+        <p className="measure mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+          Resolves a period against this calendar without asking a question of
+          the database.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <label className="sr-only" htmlFor="time-phrase">
+            Time phrase
+          </label>
           <input
+            id="time-phrase"
             value={phrase}
             onChange={(event) => setPhrase(event.target.value)}
             placeholder="fiscal YTD"
-            className="min-w-48 flex-1 rounded border border-border bg-transparent px-2 py-1.5 text-[13px] text-foreground"
+            className="h-8 min-w-56 flex-1 rounded-lg border border-border bg-background px-2.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           />
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void runPreview()}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void runPreview()}
+          >
             Preview
           </Button>
         </div>
         {preview !== null ? (
-          <p className="text-[13px] text-muted-foreground">
+          <p className="measure mt-3 rounded-lg bg-muted/50 px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground">
             {preview.recognised && preview.start !== ""
               ? preview.detail
               : preview.detail || "That phrase names no period."}
           </p>
         ) : null}
-      </section>
+      </Panel>
 
       {error !== null ? (
-        <p className="text-sm text-muted-foreground">{error}</p>
+        <p className="text-[13px] text-muted-foreground">{error}</p>
       ) : null}
     </div>
   );

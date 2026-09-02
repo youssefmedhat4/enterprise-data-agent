@@ -1,28 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { MotionConfig, motion } from "motion/react";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import {
   AlertTriangle,
-  Check,
+  CalendarClock,
+  ClipboardCheck,
   Database,
   FileCode2,
   Gauge,
   Layers,
+  LayoutGrid,
   Lightbulb,
-  RefreshCw,
-  Repeat,
   Plus,
+  Repeat,
   Shapes,
-  Sparkles,
-  X,
+  ShieldCheck,
 } from "lucide-react";
 
 import { EvaluationsPanel } from "@/components/knowledge/evaluations-panel";
 import { QualityPanel } from "@/components/knowledge/quality-panel";
+import { DatasourceCard } from "@/components/knowledge/shell/datasource-card";
+import {
+  KnowledgeNav,
+  type KnowledgeSection,
+} from "@/components/knowledge/shell/knowledge-nav";
+import { KnowledgeOverview } from "@/components/knowledge/shell/knowledge-overview";
+import {
+  CardSkeleton,
+  DetailRow,
+  EmptyState,
+  Panel,
+  SectionHeader,
+  SectionTransition,
+  StatusBadge,
+  toneForStatus,
+} from "@/components/knowledge/shell/primitives";
+import {
+  CandidateCard,
+  SchemaProposalCard,
+} from "@/components/knowledge/shell/review-card";
 import { TimePanel } from "@/components/knowledge/time-panel";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DUR, EASE_ENTRANCE } from "@/lib/motion";
 import {
   DEFAULT_DATA_SOURCE,
   DEFAULT_DATA_SOURCE_ID,
@@ -58,15 +79,21 @@ interface KnowledgeConsoleProps {
 /**
  * Reviewer surface for everything the system has learned about one database.
  *
- * Read-mostly by design. The only mutation is candidate review, and that calls
- * the backend, which re-validates before certifying — the UI never changes a
- * status on its own.
+ * Read-mostly by design. The only mutations are review decisions, and those all
+ * call the backend, which re-validates before certifying — the UI never changes
+ * a status on its own.
+ *
+ * The ten areas are grouped by the question they answer: what this database
+ * *is*, what has been *learned* from using it, and whether any of that can be
+ * *trusted*. That ordering is the navigation, and it is also roughly the order
+ * a new database is brought into service.
  */
 export function KnowledgeConsole({
   dataSourceId = DEFAULT_DATA_SOURCE_ID,
   dataSources = [DEFAULT_DATA_SOURCE],
   onDataSourcesChanged,
 }: KnowledgeConsoleProps) {
+  const [section, setSection] = useState("overview");
   const [clusters, setClusters] = useState<KnowledgeCluster[]>([]);
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
   const [metrics, setMetrics] = useState<CertifiedMetric[]>([]);
@@ -83,6 +110,7 @@ export function KnowledgeConsole({
   const [denied, setDenied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -111,6 +139,8 @@ export function KnowledgeConsole({
         return;
       }
       setNotice("The knowledge service is unavailable.");
+    } finally {
+      setLoading(false);
     }
   }, [dataSourceId]);
 
@@ -203,20 +233,91 @@ export function KnowledgeConsole({
   const confirmed = semantics.filter(
     (item) => item.status === "CONFIRMED" || item.status === "STALE",
   );
+  const stale = confirmed.filter((item) => item.status === "STALE");
+  const pendingCandidates = candidates.filter(
+    (item) => item.status === "PROPOSED",
+  );
 
   const source =
     dataSources.find((candidate) => candidate.id === dataSourceId) ??
     DEFAULT_DATA_SOURCE;
 
+  const sections = useMemo<KnowledgeSection[]>(
+    () => [
+      { value: "overview", label: "Overview", icon: LayoutGrid, group: "" },
+      { value: "sources", label: "Data sources", icon: Database, group: "DATA" },
+      {
+        value: "review",
+        label: "Schema review",
+        icon: Shapes,
+        group: "DATA",
+        count: proposals.length,
+        attention: true,
+      },
+      {
+        value: "confirmed",
+        label: "Confirmed semantics",
+        icon: Layers,
+        group: "DATA",
+      },
+      {
+        value: "questions",
+        label: "Recurring questions",
+        icon: Repeat,
+        group: "LEARNING",
+      },
+      {
+        value: "candidates",
+        label: "Candidates",
+        icon: Lightbulb,
+        group: "LEARNING",
+        count: pendingCandidates.length,
+        attention: true,
+      },
+      {
+        value: "metrics",
+        label: "Certified metrics",
+        icon: Gauge,
+        group: "LEARNING",
+      },
+      {
+        value: "examples",
+        label: "Approved examples",
+        icon: FileCode2,
+        group: "LEARNING",
+      },
+      {
+        value: "evaluations",
+        label: "Evaluations",
+        icon: ClipboardCheck,
+        group: "TRUST",
+      },
+      {
+        value: "quality",
+        label: "Data quality",
+        icon: ShieldCheck,
+        group: "TRUST",
+      },
+      {
+        value: "time",
+        label: "Time intelligence",
+        icon: CalendarClock,
+        group: "TRUST",
+      },
+    ],
+    [pendingCandidates.length, proposals.length],
+  );
+
   if (denied) {
     return (
-      <section className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <AlertTriangle
-          className="mx-auto size-8 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <h1 className="mt-4 text-lg font-semibold">Review authority required</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+      <section className="mx-auto max-w-xl px-6 py-24 text-center">
+        <div className="mx-auto grid size-11 place-items-center rounded-xl bg-warning/12">
+          <AlertTriangle className="size-5 text-warning" aria-hidden="true" />
+        </div>
+        <h1 className="mt-5 text-[19px] font-semibold tracking-tight">
+          Review authority required
+        </h1>
+        <p className="measure mx-auto mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
           Reviewing semantics and certifying metrics is separate from analytics
           access. Ask an administrator to grant knowledge review.
         </p>
@@ -225,553 +326,548 @@ export function KnowledgeConsole({
   }
 
   return (
-    <section className="mx-auto w-full max-w-5xl px-6 py-10">
-      <header className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Knowledge</h1>
-        <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Database className="size-3.5" aria-hidden="true" />
-          {source.name}
-          <span aria-hidden="true">·</span>
-          <span>{source.databaseType}</span>
-        </p>
-      </header>
-
-      {notice !== null ? (
-        <p
-          role="status"
-          className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
-        >
-          {notice}
-        </p>
-      ) : null}
-
-      <Tabs defaultValue="sources">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="sources">Data sources</TabsTrigger>
-          <TabsTrigger value="review">
-            Schema review{proposals.length > 0 ? ` (${proposals.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="confirmed">Confirmed semantics</TabsTrigger>
-          <TabsTrigger value="questions">Recurring questions</TabsTrigger>
-          <TabsTrigger value="candidates">Candidates</TabsTrigger>
-          <TabsTrigger value="metrics">Certified metrics</TabsTrigger>
-          <TabsTrigger value="examples">Approved examples</TabsTrigger>
-          <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
-          <TabsTrigger value="quality">Data quality</TabsTrigger>
-          <TabsTrigger value="time">Time intelligence</TabsTrigger>
-        </TabsList>
-
-        {/* --------------------------------------------------- data sources */}
-        <TabsContent value="sources" className="mt-4 space-y-3">
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              variant={adding ? "ghost" : "outline"}
-              onClick={() => setAdding((current) => !current)}
-            >
-              <Plus className="size-3.5" aria-hidden="true" />
-              {adding ? "Cancel" : "Add data source"}
-            </Button>
+    /* `reducedMotion="user"` is what makes the entrances above respect the
+       system setting: the CSS guard in globals.css only reaches CSS
+       transitions, not animations Framer drives from JavaScript. */
+    <MotionConfig reducedMotion="user">
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DUR.slow, ease: EASE_ENTRANCE }}
+        className="mx-auto w-full max-w-[1440px] px-6 py-10 lg:px-10 lg:py-12"
+      >
+        {/* ------------------------------------------------------------ header */}
+        <header>
+          <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+            Knowledge
+          </h1>
+          <p className="measure mt-2 text-[14px] leading-relaxed text-muted-foreground">
+            What the system understands about this database, what it is allowed to
+            say, and the evidence that it still answers correctly.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-surface px-2.5 py-1 text-[12.5px] text-foreground">
+              <Database className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              {source.name}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-hairline bg-surface px-2.5 py-1 text-[12.5px] text-muted-foreground">
+              {source.databaseType}
+            </span>
+            <StatusBadge tone={toneForStatus(source.status)} dot>
+              {source.status}
+            </StatusBadge>
           </div>
+        </header>
 
-          {adding ? (
-            <form
-              aria-label="Add data source"
-              className="space-y-3 rounded-lg border border-border p-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void register();
-              }}
-            >
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <label
-                    htmlFor="ds-name"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Name
-                  </label>
-                  <input
-                    id="ds-name"
-                    required
-                    value={form.name}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+        {notice !== null ? (
+          <motion.p
+            role="status"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: DUR.base, ease: EASE_ENTRANCE }}
+            className="mt-6 rounded-lg border border-hairline bg-surface px-3.5 py-2.5 text-[13px] text-foreground"
+          >
+            {notice}
+          </motion.p>
+        ) : null}
+
+        {/* ------------------------------------------------- navigation + body */}
+        <TabsPrimitive.Root
+          value={section}
+          onValueChange={setSection}
+          orientation="vertical"
+          className="mt-8 flex flex-col gap-5 lg:flex-row lg:gap-10"
+        >
+          <KnowledgeNav
+            sections={sections}
+            value={section}
+            onValueChange={setSection}
+          />
+
+          <div className="min-w-0 max-w-[1180px] flex-1">
+            {/* ------------------------------------------------------ overview */}
+            <TabsPrimitive.Content value="overview" className="outline-none">
+              <SectionTransition>
+                <KnowledgeOverview
+                  source={source}
+                  loading={loading}
+                  onNavigate={setSection}
+                  counts={{
+                    proposals: proposals.length,
+                    pendingCandidates: pendingCandidates.length,
+                    stale: stale.length,
+                    confirmed: confirmed.length,
+                    metrics: metrics.length,
+                    examples: examples.length,
+                    clusters: clusters.length,
+                  }}
+                />
+              </SectionTransition>
+            </TabsPrimitive.Content>
+
+            {/* -------------------------------------------------- data sources */}
+            <TabsPrimitive.Content value="sources" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Data sources"
+                  description="Databases this workspace can query. Scanning discovers what their tables mean; reindexing rebuilds the semantic search over what is already known."
+                  action={
+                    <Button
+                      size="sm"
+                      variant={adding ? "ghost" : "outline"}
+                      onClick={() => setAdding((current) => !current)}
+                    >
+                      <Plus className="size-3.5" aria-hidden="true" />
+                      {adding ? "Cancel" : "Add data source"}
+                    </Button>
+                  }
+                />
+
+                {adding ? (
+                  <Panel asChild>
+                    <form
+                      aria-label="Add data source"
+                      className="p-5"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void register();
+                      }}
+                    >
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <Field htmlFor="ds-name" label="Name">
+                          <input
+                            id="ds-name"
+                            required
+                            value={form.name}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                name: event.target.value,
+                              }))
+                            }
+                            className={FIELD_CLASS}
+                          />
+                        </Field>
+                        <Field htmlFor="ds-type" label="Database type">
+                          <select
+                            id="ds-type"
+                            value={form.databaseType}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                databaseType: event.target.value,
+                              }))
+                            }
+                            className={FIELD_CLASS}
+                          >
+                            <option value="postgres">postgres</option>
+                          </select>
+                        </Field>
+                        <Field htmlFor="ds-connection" label="Connection">
+                          {/* A choice, never free text: the server decides which
+                              references exist, so no DSN or password can be
+                              typed. */}
+                          <select
+                            id="ds-connection"
+                            required
+                            value={form.connectionRef}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                connectionRef: event.target.value,
+                              }))
+                            }
+                            className={FIELD_CLASS}
+                          >
+                            {connectionRefs.map((ref) => (
+                              <option key={ref} value={ref}>
+                                {ref}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      </div>
+                      <p className="measure mt-4 text-[12.5px] leading-relaxed text-muted-foreground">
+                        Connections are configured on the server. Credentials are
+                        never entered here and are never sent from the browser.
+                      </p>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="mt-4"
+                        disabled={busyId === "register" || connectionRefs.length === 0}
+                      >
+                        Register
+                      </Button>
+                    </form>
+                  </Panel>
+                ) : null}
+
+                <div className="space-y-4">
+                  {dataSources.map((entry) => (
+                    <DatasourceCard
+                      key={entry.id}
+                      source={entry}
+                      active={entry.id === dataSourceId}
+                      busy={busyId !== null}
+                      onScan={() => void scan()}
+                      onReindex={() => void reindex(entry.id)}
+                    />
+                  ))}
+                </div>
+              </SectionTransition>
+            </TabsPrimitive.Content>
+
+            {/* ------------------------------------------------- schema review */}
+            <TabsPrimitive.Content value="review" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Schema review"
+                  count={proposals.length}
+                  description="Each proposal reads a physical table or column and suggests what it means in business terms. Approve it, or correct the name first — the corrected name is what questions are then understood against."
+                />
+                {loading ? (
+                  <SkeletonList />
+                ) : proposals.length === 0 ? (
+                  <EmptyState
+                    icon={Shapes}
+                    title="Nothing awaiting review"
+                    description="Scan a data source to discover what its tables mean. Proposals appear here for a person to confirm."
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="ds-type"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Database type
-                  </label>
-                  <select
-                    id="ds-type"
-                    value={form.databaseType}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        databaseType: event.target.value,
-                      }))
-                    }
-                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
-                  >
-                    <option value="postgres">postgres</option>
-                  </select>
-                </div>
-                <div>
-                  <label
-                    htmlFor="ds-connection"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Connection
-                  </label>
-                  {/* A choice, never free text: the server decides which
-                      references exist, so no DSN or password can be typed. */}
-                  <select
-                    id="ds-connection"
-                    required
-                    value={form.connectionRef}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        connectionRef: event.target.value,
-                      }))
-                    }
-                    className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
-                  >
-                    {connectionRefs.map((ref) => (
-                      <option key={ref} value={ref}>
-                        {ref}
-                      </option>
+                ) : (
+                  <div className="space-y-4">
+                    {proposals.map((proposal) => (
+                      <SchemaProposalCard
+                        key={proposal.id}
+                        proposal={proposal}
+                        draft={editing[proposal.id] ?? ""}
+                        busy={busyId === proposal.id}
+                        onDraftChange={(value) =>
+                          setEditing((current) => ({
+                            ...current,
+                            [proposal.id]: value,
+                          }))
+                        }
+                        onApprove={() => void reviewMapping(proposal.id, "approve")}
+                        onReject={() => void reviewMapping(proposal.id, "reject")}
+                      />
                     ))}
-                  </select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Connections are configured on the server. Credentials are never
-                entered here and are never sent from the browser.
-              </p>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={busyId === "register" || connectionRefs.length === 0}
-              >
-                Register
-              </Button>
-            </form>
-          ) : null}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-          {dataSources.map((entry) => (
-            <article
-              key={entry.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="font-medium">{entry.name}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {entry.databaseType} · reference{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                      {entry.connectionRef}
-                    </code>
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="secondary">{entry.status}</Badge>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyId !== null}
-                    onClick={() => void scan()}
-                  >
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    {entry.lastScannedAt === null ? "Scan" : "Rescan"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyId !== null}
-                    onClick={() => void reindex(entry.id)}
-                  >
-                    <Sparkles className="size-3.5" aria-hidden="true" />
-                    Reindex semantic search
-                  </Button>
-                </div>
-              </div>
-              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                <Stat label="Certified metrics" value={entry.certifiedMetricCount} />
-                <Stat label="Confirmed entities" value={entry.confirmedEntityCount} />
-                <Stat label="Awaiting review" value={entry.proposedEntityCount} />
-                <Stat label="Recurring patterns" value={entry.recurringClusterCount} />
-              </dl>
-            </article>
-          ))}
-        </TabsContent>
-
-        {/* -------------------------------------------------- schema review */}
-        <TabsContent value="review" className="mt-4 space-y-3">
-          <Empty
-            when={proposals.length === 0}
-            icon={Shapes}
-            message="No proposals awaiting review. Scan a data source to discover what its tables mean."
-          />
-          {proposals.map((proposal) => (
-            <article
-              key={proposal.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {proposal.physical}
-                  </p>
-                  <h2 className="mt-1 font-medium">
-                    {proposal.proposedConcept}
-                  </h2>
-                  {proposal.detail !== "" ? (
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      {proposal.detail}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline">{proposal.kind}</Badge>
-                  {proposal.confidence !== null ? (
-                    <Badge variant="secondary">
-                      {Math.round(proposal.confidence * 100)}%
-                    </Badge>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <label className="sr-only" htmlFor={`edit-${proposal.id}`}>
-                  Corrected meaning for {proposal.physical}
-                </label>
-                <input
-                  id={`edit-${proposal.id}`}
-                  value={editing[proposal.id] ?? ""}
-                  placeholder={proposal.proposedConcept}
-                  onChange={(event) =>
-                    setEditing((current) => ({
-                      ...current,
-                      [proposal.id]: event.target.value,
-                    }))
-                  }
-                  className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+            {/* -------------------------------------------- confirmed semantics */}
+            <TabsPrimitive.Content value="confirmed" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Confirmed semantics"
+                  description="Approved mappings, and the ones that went stale when the schema changed underneath them. A stale mapping is not used until it is re-confirmed."
                 />
-                <Button
-                  size="sm"
-                  disabled={busyId === proposal.id}
-                  onClick={() => void reviewMapping(proposal.id, "approve")}
-                >
-                  <Check className="size-3.5" aria-hidden="true" />
-                  {editing[proposal.id]?.trim() ? "Save & approve" : "Approve"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busyId === proposal.id}
-                  onClick={() => void reviewMapping(proposal.id, "reject")}
-                >
-                  <X className="size-3.5" aria-hidden="true" />
-                  Reject
-                </Button>
-              </div>
-            </article>
-          ))}
-        </TabsContent>
-
-        {/* --------------------------------------------- confirmed semantics */}
-        <TabsContent value="confirmed" className="mt-4 space-y-3">
-          <Empty
-            when={confirmed.length === 0}
-            icon={Layers}
-            message="Nothing confirmed yet. Approved mappings appear here and drive how questions are understood."
-          />
-          {confirmed.map((mapping) => (
-            <article
-              key={mapping.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="font-medium">{mapping.proposedConcept}</h2>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {mapping.physical}
-                  </p>
-                  {mapping.detail !== "" ? (
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {mapping.detail}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline">{mapping.kind}</Badge>
-                  <Badge
-                    variant={
-                      mapping.status === "STALE" ? "destructive" : "default"
-                    }
-                  >
-                    {mapping.status}
-                  </Badge>
-                </div>
-              </div>
-              {mapping.status === "STALE" ? (
-                <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
-                  The schema changed underneath this mapping. It is no longer used
-                  until re-confirmed.
-                </p>
-              ) : null}
-            </article>
-          ))}
-        </TabsContent>
-
-        {/* ---------------------------------------------- recurring questions */}
-        <TabsContent value="questions" className="mt-4 space-y-3">
-          <Empty
-            when={clusters.length === 0}
-            icon={Repeat}
-            message="No recurring patterns yet. They appear once the same analytical shape is asked more than once."
-          />
-          {clusters.map((cluster) => (
-            <article
-              key={cluster.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 font-medium">{cluster.canonicalSummary}</p>
-                <Badge variant="secondary">
-                  {cluster.successfulCount}/{cluster.occurrenceCount} answered
-                </Badge>
-              </div>
-              <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
-                {cluster.structuralFingerprint}
-              </p>
-            </article>
-          ))}
-        </TabsContent>
-
-        {/* ---------------------------------------------------- candidates */}
-        <TabsContent value="candidates" className="mt-4 space-y-3">
-          <Empty
-            when={candidates.length === 0}
-            icon={Lightbulb}
-            message="No knowledge candidates. They are proposed from recurring patterns that repeatedly succeeded."
-          />
-          {candidates.map((candidate) => (
-            <article
-              key={candidate.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="font-medium">{candidate.displayName}</h2>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {candidate.description || "Suggested from a recurring pattern."}
-                  </p>
-                </div>
-                <Badge
-                  variant={
-                    candidate.status === "APPROVED" ? "default" : "secondary"
-                  }
-                >
-                  {candidate.status}
-                </Badge>
-              </div>
-
-              <dl className="mt-3 space-y-1 text-sm">
-                <Row label="Type" value={candidate.candidateType} />
-                <Row
-                  label="Observed"
-                  value={`${candidate.evidenceCount} times · ${candidate.successfulEvidenceCount} successful`}
-                />
-                {candidate.expression !== null ? (
-                  <Row label="Calculation" value={candidate.expression} mono />
-                ) : null}
-                {candidate.grain !== null ? (
-                  <Row label="Grain" value={candidate.grain} />
-                ) : null}
-                {candidate.dependencies.length > 0 ? (
-                  <Row
-                    label="Depends on"
-                    value={candidate.dependencies.join(", ")}
+                {loading ? (
+                  <SkeletonList />
+                ) : confirmed.length === 0 ? (
+                  <EmptyState
+                    icon={Layers}
+                    title="Nothing confirmed yet"
+                    description="Approved mappings appear here and drive how questions are understood."
                   />
-                ) : null}
-                {/* What this kind of proposal actually says. A reviewer shown
-                    only a name is being asked to approve something they cannot
-                    see. */}
-                {candidate.detail.map((item) => (
-                  <Row key={item.label} label={item.label} value={item.value} />
-                ))}
-                {candidate.rejectionReason !== null ? (
-                  <Row label="Rejected because" value={candidate.rejectionReason} />
-                ) : null}
-              </dl>
+                ) : (
+                  <div className="space-y-4">
+                    {confirmed.map((mapping) => (
+                      <Panel interactive key={mapping.id} className="p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <h3 className="text-[15px] font-medium text-foreground">
+                              {mapping.proposedConcept}
+                            </h3>
+                            <p className="mt-1 font-mono text-[12px] text-muted-foreground">
+                              {mapping.physical}
+                            </p>
+                            {mapping.detail !== "" ? (
+                              <p className="measure mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                                {mapping.detail}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <StatusBadge tone="neutral">{mapping.kind}</StatusBadge>
+                            <StatusBadge
+                              tone={toneForStatus(mapping.status)}
+                              dot
+                            >
+                              {mapping.status}
+                            </StatusBadge>
+                          </div>
+                        </div>
+                        {mapping.status === "STALE" ? (
+                          <p className="mt-4 flex items-start gap-2 border-t border-hairline pt-3 text-[13px] text-muted-foreground">
+                            <AlertTriangle
+                              className="mt-0.5 size-3.5 shrink-0 text-warning"
+                              aria-hidden="true"
+                            />
+                            The schema changed underneath this mapping. It is no
+                            longer used until re-confirmed.
+                          </p>
+                        ) : null}
+                      </Panel>
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-              {candidate.status === "PROPOSED" ? (
-                <div className="mt-4 flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busyId === candidate.id}
-                    onClick={() => void review(candidate.id, "approve")}
-                  >
-                    <Check className="size-3.5" aria-hidden="true" />
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyId === candidate.id}
-                    onClick={() => void review(candidate.id, "reject")}
-                  >
-                    <X className="size-3.5" aria-hidden="true" />
-                    Reject
-                  </Button>
-                </div>
-              ) : null}
-            </article>
-          ))}
-        </TabsContent>
+            {/* ---------------------------------------------- recurring questions */}
+            <TabsPrimitive.Content value="questions" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Recurring questions"
+                  description="Analytical shapes that have been asked more than once. Repeated success here is what proposes a candidate."
+                />
+                {loading ? (
+                  <SkeletonList rows={1} />
+                ) : clusters.length === 0 ? (
+                  <EmptyState
+                    icon={Repeat}
+                    title="No recurring patterns yet"
+                    description="They appear once the same analytical shape is asked more than once."
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {clusters.map((cluster) => (
+                      <Panel interactive key={cluster.id} className="p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <p className="min-w-0 text-[14px] font-medium text-foreground">
+                            {cluster.canonicalSummary}
+                          </p>
+                          <StatusBadge
+                            tone={
+                              cluster.successfulCount === cluster.occurrenceCount
+                                ? "positive"
+                                : "neutral"
+                            }
+                          >
+                            {cluster.successfulCount}/{cluster.occurrenceCount}{" "}
+                            answered
+                          </StatusBadge>
+                        </div>
+                        <p className="mt-2 truncate font-mono text-[12px] text-muted-foreground">
+                          {cluster.structuralFingerprint}
+                        </p>
+                      </Panel>
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-        {/* ---------------------------------------------- certified metrics */}
-        <TabsContent value="metrics" className="mt-4 space-y-3">
-          <Empty
-            when={metrics.length === 0}
-            icon={Gauge}
-            message="No certified metrics for this database yet."
-          />
-          {metrics.map((metric) => (
-            <article
-              key={metric.metricKey}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="font-medium">{metric.displayName}</h2>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {metric.metricKey} · v{metric.version}
-                  </p>
-                </div>
-                <Badge>{metric.status}</Badge>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {metric.businessMeaning || metric.description}
-              </p>
-              <dl className="mt-3 space-y-1 text-sm">
-                {metric.grain !== null ? (
-                  <Row label="Grain" value={metric.grain} />
-                ) : null}
-                {metric.dimensions.length > 0 ? (
-                  <Row label="Dimensions" value={metric.dimensions.join(", ")} />
-                ) : null}
-                {metric.semanticExpression !== null ? (
-                  <Row label="Expression" value={metric.semanticExpression} mono />
-                ) : null}
-                {metric.approvedBy !== null ? (
-                  <Row label="Approved by" value={metric.approvedBy} />
-                ) : null}
-              </dl>
-            </article>
-          ))}
-        </TabsContent>
+            {/* ---------------------------------------------------- candidates */}
+            <TabsPrimitive.Content value="candidates" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Candidates"
+                  count={pendingCandidates.length}
+                  description="Metrics, rules and dimensions the system has proposed from patterns that repeatedly succeeded. Nothing here is used to answer a question until a person approves it."
+                />
+                {loading ? (
+                  <SkeletonList rows={4} />
+                ) : candidates.length === 0 ? (
+                  <EmptyState
+                    icon={Lightbulb}
+                    title="No knowledge candidates"
+                    description="They are proposed from recurring patterns that repeatedly succeeded."
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {candidates.map((candidate) => (
+                      <CandidateCard
+                        key={candidate.id}
+                        candidate={candidate}
+                        busy={busyId === candidate.id}
+                        onApprove={() => void review(candidate.id, "approve")}
+                        onReject={() => void review(candidate.id, "reject")}
+                      />
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-        {/* ---------------------------------------------- approved examples */}
-        <TabsContent value="examples" className="mt-4 space-y-3">
-          <Empty
-            when={examples.length === 0}
-            icon={FileCode2}
-            message="No approved query examples yet."
-          />
-          {examples.map((example) => (
-            <article
-              key={example.id}
-              className="rounded-lg border border-border p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 font-medium">{example.question}</p>
-                <Badge variant="secondary">{example.status}</Badge>
-              </div>
-              {example.semanticPlan !== "" ? (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {example.semanticPlan}
-                </p>
-              ) : null}
-              {/* SQL is deliberately not shown: it describes tables and columns
-                  beyond what listing an example requires. */}
-            </article>
-          ))}
-        </TabsContent>
+            {/* ---------------------------------------------- certified metrics */}
+            <TabsPrimitive.Content value="metrics" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Certified metrics"
+                  description="Definitions the system is allowed to answer from directly, with the business meaning a reviewer signed off."
+                />
+                {loading ? (
+                  <SkeletonList rows={3} />
+                ) : metrics.length === 0 ? (
+                  <EmptyState
+                    icon={Gauge}
+                    title="No certified metrics yet"
+                    description="Approving a metric candidate certifies it for this database."
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {metrics.map((metric) => (
+                      <Panel interactive key={metric.metricKey} className="p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <h3 className="text-[15px] font-medium text-foreground">
+                              {metric.displayName}
+                            </h3>
+                            <p className="mt-1 font-mono text-[12px] text-muted-foreground">
+                              {metric.metricKey} · v{metric.version}
+                            </p>
+                          </div>
+                          <StatusBadge tone={toneForStatus(metric.status)} dot>
+                            {metric.status}
+                          </StatusBadge>
+                        </div>
+                        <p className="measure mt-3 text-[13px] leading-relaxed text-muted-foreground">
+                          {metric.businessMeaning || metric.description}
+                        </p>
+                        <dl className="mt-4 border-t border-hairline pt-3">
+                          {metric.grain !== null ? (
+                            <DetailRow label="Grain" value={metric.grain} />
+                          ) : null}
+                          {metric.dimensions.length > 0 ? (
+                            <DetailRow
+                              label="Dimensions"
+                              value={metric.dimensions.join(", ")}
+                            />
+                          ) : null}
+                          {metric.semanticExpression !== null ? (
+                            <DetailRow
+                              label="Expression"
+                              value={metric.semanticExpression}
+                              mono
+                            />
+                          ) : null}
+                          {metric.approvedBy !== null ? (
+                            <DetailRow
+                              label="Approved by"
+                              value={metric.approvedBy}
+                            />
+                          ) : null}
+                        </dl>
+                      </Panel>
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-        {/* ---------------------------------------------------- evaluations */}
-        <TabsContent value="evaluations" className="mt-4">
-          <EvaluationsPanel dataSourceId={dataSourceId} />
-        </TabsContent>
+            {/* ---------------------------------------------- approved examples */}
+            <TabsPrimitive.Content value="examples" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Approved examples"
+                  description="Questions whose plan a reviewer approved. They are shown to the planner as precedent for how this database is meant to be queried."
+                />
+                {loading ? (
+                  <SkeletonList rows={1} />
+                ) : examples.length === 0 ? (
+                  <EmptyState
+                    icon={FileCode2}
+                    title="No approved examples yet"
+                    description="Approving an example teaches the planner how a question of that shape should be answered here."
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {examples.map((example) => (
+                      <Panel interactive key={example.id} className="p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <p className="min-w-0 text-[14px] font-medium text-foreground">
+                            {example.question}
+                          </p>
+                          <StatusBadge tone={toneForStatus(example.status)}>
+                            {example.status}
+                          </StatusBadge>
+                        </div>
+                        {example.semanticPlan !== "" ? (
+                          <p className="measure mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                            {example.semanticPlan}
+                          </p>
+                        ) : null}
+                        {/* SQL is deliberately not shown: it describes tables and
+                            columns beyond what listing an example requires. */}
+                      </Panel>
+                    ))}
+                  </div>
+                )}
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-        {/* -------------------------------------------------- data quality */}
-        <TabsContent value="quality" className="mt-4">
-          <QualityPanel dataSourceId={dataSourceId} />
-        </TabsContent>
+            {/* ---------------------------------------------------- evaluations */}
+            <TabsPrimitive.Content value="evaluations" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Evaluations"
+                  description="Questions with a known answer, and whether they still answer correctly. A regression is the only thing on this page worth interrupting a day for."
+                />
+                <EvaluationsPanel dataSourceId={dataSourceId} />
+              </SectionTransition>
+            </TabsPrimitive.Content>
 
-        {/* --------------------------------------------- time intelligence */}
-        <TabsContent value="time" className="mt-4">
-          <TimePanel dataSourceId={dataSourceId} />
-        </TabsContent>
-      </Tabs>
-    </section>
+            {/* -------------------------------------------------- data quality */}
+            <TabsPrimitive.Content value="quality" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Data quality"
+                  description="What a reviewer has asserted about the data itself. The system already checks that its SQL is correct; this is the other half."
+                />
+                <QualityPanel dataSourceId={dataSourceId} />
+              </SectionTransition>
+            </TabsPrimitive.Content>
+
+            {/* --------------------------------------------- time intelligence */}
+            <TabsPrimitive.Content value="time" className="outline-none">
+              <SectionTransition>
+                <SectionHeader
+                  title="Time intelligence"
+                  description="This database's calendar, and the columns that carry time. Confirming it is what lets fiscal periods be answered rather than declined."
+                />
+                <TimePanel dataSourceId={dataSourceId} />
+              </SectionTransition>
+            </TabsPrimitive.Content>
+          </div>
+        </TabsPrimitive.Root>
+      </motion.section>
+    </MotionConfig>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+const FIELD_CLASS =
+  "mt-1.5 h-8 w-full rounded-lg border border-border bg-background px-2.5 text-[13px] outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+function Field({
+  htmlFor,
+  label,
+  children,
+}: {
+  htmlFor: string;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-lg font-medium tabular-nums">{value}</dd>
+      <label htmlFor={htmlFor} className="text-[12.5px] font-medium text-muted-foreground">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
 
-function Row({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+/** Three card outlines, so arriving data replaces something the same shape. */
+function SkeletonList({ rows = 2 }: { rows?: number }) {
   return (
-    <div className="flex gap-2">
-      <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className={mono ? "min-w-0 font-mono text-xs leading-5" : "min-w-0"}>
-        {value}
-      </dd>
+    <div className="space-y-4">
+      {[0, 1, 2].map((index) => (
+        <CardSkeleton key={index} rows={rows} />
+      ))}
     </div>
-  );
-}
-
-function Empty({
-  when,
-  icon: Icon,
-  message,
-}: {
-  when: boolean;
-  icon: typeof Layers;
-  message: string;
-}) {
-  if (!when) return null;
-  return (
-    <p className="flex items-center gap-2 rounded-lg border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
-      {message}
-    </p>
   );
 }

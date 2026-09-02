@@ -64,6 +64,14 @@ function mockApi(semantics: unknown[] = [], status = 200) {
   return calls;
 }
 
+/**
+ * The console opens on Overview, so anything about a data source starts by
+ * navigating there — the same click a reviewer makes.
+ */
+async function openDataSources() {
+  await userEvent.click(await screen.findByRole("tab", { name: "Data sources" }));
+}
+
 beforeEach(() => vi.restoreAllMocks());
 afterEach(() => {
   cleanup();
@@ -167,6 +175,7 @@ describe("Data sources", () => {
     const calls = mockApi([]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
+    await openDataSources();
     await userEvent.click(await screen.findByRole("button", { name: /Scan/ }));
 
     await waitFor(() => {
@@ -181,6 +190,7 @@ describe("Data sources", () => {
     );
 
     await screen.findByText("Knowledge");
+    await openDataSources();
     expect(container.textContent).not.toContain("://");
     expect(container.textContent).not.toContain("password");
   });
@@ -201,6 +211,7 @@ describe("Data source registration", () => {
     mockApi([]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
+    await openDataSources();
     await userEvent.click(
       await screen.findByRole("button", { name: /Add data source/ }),
     );
@@ -221,6 +232,7 @@ describe("Data source registration", () => {
     const calls = mockApi([]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
+    await openDataSources();
     await userEvent.click(
       await screen.findByRole("button", { name: /Add data source/ }),
     );
@@ -246,6 +258,7 @@ describe("Semantic reindex", () => {
     const calls = mockApi([]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
+    await openDataSources();
     await userEvent.click(
       await screen.findByRole("button", { name: /Reindex semantic search/ }),
     );
@@ -259,6 +272,7 @@ describe("Semantic reindex", () => {
     mockApi([]);
     render(<KnowledgeConsole dataSourceId={DEFAULT_DATA_SOURCE_ID} />);
 
+    await openDataSources();
     await userEvent.click(
       await screen.findByRole("button", { name: /Reindex semantic search/ }),
     );
