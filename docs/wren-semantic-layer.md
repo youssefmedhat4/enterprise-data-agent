@@ -63,8 +63,7 @@ reached. There is no silent fallback.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -m wren --run-wren -v
-.\.venv\Scripts\enterprise-data-semantic-compare.exe "Which department has the highest payroll?"
 ```
 
-The comparison command performs semantic retrieval only. It does not call an LLM or execute
-question-generated SQL.
+These integration tests verify bounded context retrieval, physical-schema reconciliation, and
+clean failure when the explicitly selected Wren service is unavailable.

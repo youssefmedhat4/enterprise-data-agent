@@ -498,4 +498,4 @@ PostgreSQL, Legacy ERP, OPA, Wren, Cube, local-model, and cloud-model tests are 
 - [Wren governed metrics decision](docs/decisions/0011-wren-governed-metrics.md)
 - [Schema-aware SQL validation](docs/decisions/0005-schema-aware-sql-validation.md)
 - [Authentication and OPA boundary](docs/decisions/0006-authentication-and-opa-authorization.md)
-- [Time intelligence](docs/adr/0002-time-intelligence.md)
+- [Time intelligence](docs/decisions/0015-time-intelligence.md)

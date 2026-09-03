@@ -3,8 +3,9 @@
 ## Scope
 
 Backend v1 is a read-only conversational analytics service. It supports governed metrics (Wren by
-default; ADR 0011) and ad-hoc SQL through one FastAPI contract. Frontend work, production model serving, deployment
-architecture, and interactive enterprise tenant setup are intentionally outside this milestone.
+default; ADR 0011) and ad-hoc SQL through one FastAPI contract. The repository includes a Next.js
+client; production deployment architecture and interactive enterprise tenant setup remain outside
+this milestone.
 
 ## Request Lifecycle
 
@@ -67,7 +68,7 @@ active-headcount filtering separate from roster payroll and average salary. No p
 ## Public API
 
 `POST /analytics/query` accepts a question, optional thread ID, and optional debug request. Both
-routes return `AnalyticsResponse` schema version `1.0` with:
+routes return `AnalyticsResponse` schema version `1.1` with:
 
 - `request_id`, `thread_id`, and `status`
 - grounded `answer`, `columns`, `rows`, and validated `chart`
@@ -164,15 +165,14 @@ future OpenBao/Vault/company secret manager. Secret values use `SecretStr`, are 
 settings serialization, and must not be placed in images or manifests. Sending database-derived
 content to cloud LLMs requires `ALLOW_CLOUD_DATABASE_DATA=1`.
 
-`POST /analytics/query` accepts a bounded `model_profile` of `qwen` (default) or `gemini`.
+`POST /analytics/query` accepts a bounded `model_profile` of `gemini_pro` (default) or `gemini`.
 The server resolves the selected profile to the existing `analytics-general` and `sql-reasoner`
 logical aliases for that request. It never accepts provider names, endpoint IDs, projects, regions,
-or physical model IDs from the client. Qwen uses the configured Vertex Model Garden endpoint and
-its response-format structured mode with thinking disabled; Gemini uses
-`vertex_ai/gemini-2.5-flash` through ADC and receives no Qwen-specific options. The selected
-physical aliases alone are retained internally, while the public response exposes only the safe
-profile and display name. There is no profile fallback. Wren metric translation is unaffected by
-the selection, though the selected `analytics-general` alias still grounds the final answer.
+or physical model IDs from the client. Both profiles are configuration-driven and use Vertex AI
+with Application Default Credentials in the documented deployment. The selected physical aliases
+remain internal, while the public response exposes only the safe profile and display name. There
+is no profile fallback. Wren metric translation is unaffected by the selection, though the selected
+`analytics-general` alias still grounds the final answer.
 
 The cloud-data guard is evaluated against the physical aliases selected for the request. This
 keeps both current cloud profiles fail-closed without allowing an unused cloud profile to block a
@@ -230,62 +230,21 @@ METRIC_PROVIDER=wren
 SEMANTIC_PROVIDER=inmemory
 GOVERNANCE_PROVIDER=disabled
 LLM_PROVIDER=litellm
-LLM_MODEL_ANALYTICS_GENERAL=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
-LLM_MODEL_SQL_REASONER=vertex_ai/openai/mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d
 LLM_MODEL_GEMINI_ANALYTICS_GENERAL=vertex_ai/gemini-2.5-flash
 LLM_MODEL_GEMINI_SQL_REASONER=vertex_ai/gemini-2.5-flash
+LLM_MODEL_GEMINI_PRO_ANALYTICS_GENERAL=vertex_ai/gemini-3.1-pro-preview
+LLM_MODEL_GEMINI_PRO_SQL_REASONER=vertex_ai/gemini-3.1-pro-preview
 LLM_GEMINI_VERTEXAI_LOCATION=global
 VERTEXAI_PROJECT=your-project-id
-VERTEXAI_LOCATION=us-central1
+VERTEXAI_LOCATION=global
 ALLOW_CLOUD_DATABASE_DATA=1
 ```
 
-Both aliases resolve to a self-hosted `Qwen/Qwen3.6-27B` endpoint in this project's own
-Vertex AI (ADR 0013), served by Google's prebuilt vLLM container on one
-`NVIDIA_RTX_PRO_6000`. ADC supplies the credentials; no API key, service-account key, or
-bearer token is stored anywhere. `ALLOW_CLOUD_DATABASE_DATA=1` still applies — self-hosting
-the weights does not exempt the endpoint, because result content still leaves the process.
-
-There is no model fallback. If the selected endpoint is undeployed or unreachable, requests fail
-with a typed LLM error. The frontend can select Gemini for the next request without changing the
-thread; prior exchanges retain their original profile identity. To move to a local machine instead,
-configure the Qwen aliases as
-`ollama_chat/<installed-tag>` and set `OLLAMA_API_BASE`; LangGraph and application code do
-not change in either direction.
-
-### Qwen endpoint operations
-
-Stopping GPU billing and deleting the resources are different actions. Undeploying releases
-the accelerator while keeping the endpoint and model registry entry, so redeploying later is
-cheap; deleting is permanent.
-
-```powershell
-# 1. Is it running, and is a replica serving?
-gcloud ai endpoints list --region=us-central1 --filter="displayName=enterprise-data-agent-qwen36-27b"
-gcloud ai endpoints describe mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1 `
-  --format="value(deployedModels[0].id,deployedModels[0].status.availableReplicaCount)"
-
-# 2. STOP BILLING - undeploy the model, keep the endpoint
-gcloud ai endpoints undeploy-model mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1 `
-  --deployed-model-id=510926010997276672
-
-# 3. Redeploy later
-gcloud ai model-garden models deploy --model="qwen/qwen3-6@qwen3.6-27b" `
-  --region=us-central1 --accept-eula --machine-type=g4-standard-48 `
-  --accelerator-type=NVIDIA_RTX_PRO_6000 `
-  --container-image-uri="us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:20260226_0916_RC01" `
-  --reservation-affinity reservation-affinity-type=no-reservation `
-  --disable-dedicated-endpoint `
-  --endpoint-display-name="enterprise-data-agent-qwen36-27b-shared"
-
-# 4. PERMANENTLY DELETE (after undeploying)
-gcloud ai endpoints delete mg-endpoint-070e07e1-0bd5-4080-a45d-e88f7cd8778d --region=us-central1
-gcloud ai models delete MODEL_ID --region=us-central1
-```
-
-Do not pass `--use-dedicated-endpoint`. A dedicated endpoint serves from
-`*.prediction.vertexai.goog`, which is TLS-intercepted on this network by a CA the machine
-does not trust, making the endpoint unreachable after a successful deploy.
+ADC supplies credentials; no API key, service-account key, or bearer token belongs in repository
+files. `ALLOW_CLOUD_DATABASE_DATA=1` is still required because schema and result context leave the
+process. Provider or model failure returns a typed error and never falls back to another profile.
+The LiteLLM gateway itself remains provider-neutral, so an approved deployment can configure a
+different physical route without changing LangGraph.
 
 Production replaces local authentication with OIDC:
 
@@ -309,9 +268,9 @@ git diff --check
 
 ## Intentional Limitations
 
-- No frontend.
-- No SGLang production inference.
-- No Kubernetes or production deployment/HA architecture.
+- One analytics request targets one datasource; cross-database joins are not supported.
+- Production Entra tenant consent and interactive login are deployment-specific.
+- No Kubernetes or production deployment/high-availability architecture.
 - OpenMetadata adapter is mocked/tested, but a full deployment has not been validated here.
 - The OIDC/Entra-compatible adapter is implemented and locally verified with signed JWTs; actual
   tenant consent, claims, and interactive login remain deployment-specific.
