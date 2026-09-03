@@ -13,19 +13,17 @@ from app.llm.gateway import (
 )
 from app.security.sql_validation import SQLValidator
 
-EXPECTED_MODEL_TAG = "qwen3.5:9b"
-EXPECTED_LITELLM_MODEL = f"ollama_chat/{EXPECTED_MODEL_TAG}"
-
 
 @pytest.mark.local_llm
 @pytest.mark.asyncio
-async def test_local_qwen_generates_safe_structured_sql() -> None:
+async def test_configured_local_ollama_model_generates_safe_structured_sql() -> None:
     settings = Settings()
     if not settings.run_local_llm_tests:
         pytest.skip("RUN_LOCAL_LLM_TESTS=1 is required for a genuine local model call")
     assert settings.llm_provider == "litellm"
     configured_models = set(settings.model_aliases.values())
-    assert configured_models == {EXPECTED_LITELLM_MODEL}
+    assert configured_models
+    assert all(settings.model_provider(model) == "ollama" for model in configured_models)
 
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -41,7 +39,7 @@ async def test_local_qwen_generates_safe_structured_sql() -> None:
     }
     physical_tags = {model.removeprefix("ollama_chat/") for model in configured_models}
     if not physical_tags.issubset(installed):
-        pytest.skip(f"Configured Qwen tag is not installed: {sorted(physical_tags - installed)}")
+        pytest.skip(f"Configured Ollama tag is not installed: {sorted(physical_tags - installed)}")
 
     gateway = build_llm_gateway(settings)
     try:
@@ -74,4 +72,4 @@ async def test_local_qwen_generates_safe_structured_sql() -> None:
     usage = gateway.usage_snapshot()
     assert usage.call_count == 1
     assert usage.provider_calls == {"ollama": 1}
-    assert any(EXPECTED_MODEL_TAG in model for model in usage.model_calls)
+    assert any(tag in model for tag in physical_tags for model in usage.model_calls)

@@ -25,8 +25,8 @@ def test_production_configuration_rejects_in_memory_checkpointing() -> None:
             AUTHORIZATION_PROVIDER="opa",
             DATABASE_PROVIDER="postgres",
             LLM_PROVIDER="litellm",
-            LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.5:9b",
-            LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.5:9b",
+            LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/local-model",
+            LLM_MODEL_SQL_REASONER="ollama_chat/local-model",
             CONVERSATION_CHECKPOINT_PROVIDER="memory",
         )
 

@@ -171,7 +171,7 @@ async def test_litellm_gateway_passes_ollama_api_base_without_api_key() -> None:
         }
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "ollama/qwen3.6:27b"},
+        {"sql-reasoner": "ollama/local-model"},
         api_bases_by_alias={"sql-reasoner": "http://localhost:11434"},
         model_options_by_alias={"sql-reasoner": {"num_ctx": 8192}},
         max_output_tokens=2048,
@@ -274,7 +274,7 @@ async def test_litellm_gateway_classifies_local_model_out_of_memory() -> None:
         raise RuntimeError("llama-server reported out-of-memory; unable to allocate buffer")
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "ollama/qwen3.6:27b"},
+        {"sql-reasoner": "ollama/local-model"},
         completion=completion,
     )
 
@@ -298,7 +298,7 @@ async def test_litellm_gateway_classifies_exhausted_provider_rate_limit() -> Non
         raise RateLimitError("429")
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "groq/qwen/qwen3.6-27b"},
+        {"sql-reasoner": "groq/approved-model"},
         completion=completion,
     )
 
@@ -329,7 +329,7 @@ async def test_litellm_gateway_classifies_groq_tool_use_failure() -> None:
         )
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "groq/qwen/qwen3.6-27b"},
+        {"sql-reasoner": "groq/approved-model"},
         completion=completion,
     )
 
@@ -362,7 +362,7 @@ async def test_litellm_gateway_classifies_authentication_failure() -> None:
         raise AuthenticationError("credential rejected")
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "groq/qwen/qwen3.6-27b"},
+        {"sql-reasoner": "groq/approved-model"},
         completion=completion,
     )
 
@@ -486,7 +486,7 @@ async def test_litellm_gateway_preserves_sanitized_unknown_provider_error() -> N
         raise UnexpectedProviderError("secret request content")
 
     gateway = LiteLLMGateway(
-        {"sql-reasoner": "groq/qwen/qwen3.6-27b"},
+        {"sql-reasoner": "groq/approved-model"},
         completion=completion,
     )
 

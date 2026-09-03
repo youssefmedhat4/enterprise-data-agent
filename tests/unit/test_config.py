@@ -103,8 +103,8 @@ def test_production_rejects_development_only_backends() -> None:
             AUTHORIZATION_PROVIDER="opa",
             DATABASE_PROVIDER="postgres",
             LLM_PROVIDER="litellm",
-            LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.5:9b",
-            LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.5:9b",
+            LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/local-model",
+            LLM_MODEL_SQL_REASONER="ollama_chat/local-model",
             CONVERSATION_CHECKPOINT_PROVIDER="postgres",
             CHECKPOINT_DATABASE_URL="postgresql://checkpoint:test@localhost:5433/checkpoints",
         )
@@ -119,8 +119,8 @@ def test_production_accepts_oidc_opa_persistent_checkpoint_and_real_backends() -
         AUTHORIZATION_PROVIDER="opa",
         DATABASE_PROVIDER="postgres",
         LLM_PROVIDER="litellm",
-        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.5:9b",
-        LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.5:9b",
+        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/local-model",
+        LLM_MODEL_SQL_REASONER="ollama_chat/local-model",
         CONVERSATION_CHECKPOINT_PROVIDER="postgres",
         CHECKPOINT_DATABASE_URL="postgresql://checkpoint:test@checkpoint-db/checkpoints",
     )
@@ -135,14 +135,12 @@ def test_cloud_data_guard_checks_only_the_selected_profile() -> None:
         DATABASE_PROVIDER="postgres",
         ALLOW_CLOUD_DATABASE_DATA=False,
         LLM_PROVIDER="litellm",
-        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.6:27b",
-        LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.6:27b",
+        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/local-model",
+        LLM_MODEL_SQL_REASONER="ollama_chat/local-model",
         VERTEXAI_PROJECT="test-project",
     )
 
-    assert settings.resolve_model_profile("qwen").physical_models == [
-        "ollama_chat/qwen3.6:27b"
-    ]
+    assert set(settings.model_aliases.values()) == {"ollama_chat/local-model"}
     with pytest.raises(ValueError, match="ALLOW_CLOUD_DATABASE_DATA"):
         settings.resolve_model_profile("gemini")
 
@@ -150,32 +148,27 @@ def test_cloud_data_guard_checks_only_the_selected_profile() -> None:
 def test_model_profiles_are_request_scoped_and_keep_provider_options_separate() -> None:
     settings = Settings(
         LLM_PROVIDER="litellm",
-        LLM_MODEL_ANALYTICS_GENERAL="vertex_ai/openai/qwen-endpoint-for-test",
-        LLM_MODEL_SQL_REASONER="vertex_ai/openai/qwen-endpoint-for-test",
         VERTEXAI_PROJECT="test-project",
-        VERTEXAI_LOCATION="us-central1",
         LLM_GEMINI_VERTEXAI_LOCATION="global",
         ALLOW_CLOUD_DATABASE_DATA=True,
     )
 
-    qwen = settings.resolve_model_profile("qwen")
+    gemini_pro = settings.resolve_model_profile("gemini_pro")
     gemini = settings.resolve_model_profile("gemini")
 
-    assert set(qwen.model_aliases.values()) == {
-        "vertex_ai/openai/qwen-endpoint-for-test"
+    assert set(gemini_pro.model_aliases.values()) == {
+        "vertex_ai/gemini-3.1-pro-preview"
     }
     assert set(gemini.model_aliases.values()) == {"vertex_ai/gemini-2.5-flash"}
-    assert qwen.model_options_by_alias["sql-reasoner"] == {
+    assert gemini_pro.model_options_by_alias["sql-reasoner"] == {
         "vertex_project": "test-project",
-        "vertex_location": "us-central1",
-        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        "vertex_location": "global",
     }
     assert gemini.model_options_by_alias["sql-reasoner"] == {
         "vertex_project": "test-project",
         "vertex_location": "global",
     }
-    assert "extra_body" not in gemini.model_options_by_alias["analytics-general"]
-    assert qwen.structured_output_modes_by_alias == {}
+    assert gemini_pro.structured_output_modes_by_alias == {}
     assert gemini.structured_output_modes_by_alias == {}
 
 
@@ -215,12 +208,12 @@ def test_cloud_keys_are_excluded_from_serialized_settings() -> None:
 def test_groq_aliases_receive_only_the_groq_environment_credential() -> None:
     settings = Settings(
         LLM_PROVIDER="litellm",
-        LLM_MODEL_ANALYTICS_GENERAL="groq/qwen/qwen3.6-27b",
-        LLM_MODEL_SQL_REASONER="groq/qwen/qwen3.6-27b",
+        LLM_MODEL_ANALYTICS_GENERAL="groq/approved-model",
+        LLM_MODEL_SQL_REASONER="groq/approved-model",
         GROQ_API_KEY="groq-unit-test-credential",
     )
 
-    assert settings.required_api_key_name("groq/qwen/qwen3.6-27b") == "GROQ_API_KEY"
+    assert settings.required_api_key_name("groq/approved-model") == "GROQ_API_KEY"
     assert set(settings.api_keys_by_alias) == {"analytics-general", "sql-reasoner"}
     assert settings.api_bases_by_alias == {}
     assert settings.structured_output_modes_by_alias == {
@@ -258,8 +251,8 @@ def test_zai_aliases_receive_only_the_zai_environment_credential() -> None:
 def test_ollama_aliases_receive_configured_local_api_base_without_credentials() -> None:
     settings = Settings(
         LLM_PROVIDER="litellm",
-        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/qwen3.5:9b",
-        LLM_MODEL_SQL_REASONER="ollama_chat/qwen3.5:9b",
+        LLM_MODEL_ANALYTICS_GENERAL="ollama_chat/local-model",
+        LLM_MODEL_SQL_REASONER="ollama_chat/local-model",
         OLLAMA_API_BASE="http://localhost:11434/",
         OLLAMA_NUM_CTX=8192,
     )
@@ -341,7 +334,6 @@ def test_vertex_gemini_still_requires_cloud_data_approval() -> None:
 def test_gemini_pro_is_the_default_selectable_profile() -> None:
     assert DEFAULT_MODEL_PROFILE == "gemini_pro"
     assert SELECTABLE_MODEL_PROFILES == ("gemini_pro", "gemini")
-    assert "qwen" not in SELECTABLE_MODEL_PROFILES
     assert AnalyticsRequest(question="q").model_profile == "gemini_pro"
 
 
