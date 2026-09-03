@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/tooltip";
 import type { SystemHealth } from "@/hooks/use-health";
 import { DUR, EASE_OUT, SPRING } from "@/lib/motion";
-import { groupThreads, type ThreadSummary } from "@/lib/threads/storage";
+import {
+  groupConversations,
+  type ConversationSummary,
+} from "@/lib/conversations/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,8 +29,8 @@ import { cn } from "@/lib/utils";
  * while the work stays in focus, the collapsed rail is the default on desktop
  * and the expanded state is summoned rather than permanent.
  *
- * The thread list is local metadata only — LangGraph remains the authoritative
- * conversation store and the backend exposes no thread-listing endpoint.
+ * The conversation list comes from the server, so it is the same list on any
+ * browser the user signs in from and survives a restart of either process.
  */
 
 const RAIL_W = 56;
@@ -40,33 +43,36 @@ const DESTINATIONS = [
 ] as const;
 
 interface RailProps {
-  threads: ThreadSummary[];
-  activeThreadId: string | null;
+  conversations: ConversationSummary[];
+  /** The list could not be read; say so rather than showing an empty state. */
+  conversationsFailed: boolean;
+  activeConversationId: string | null;
   health: SystemHealth;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onNewAnalysis: () => void;
-  onSelectThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
+  onSelectConversation: (conversationId: string) => void;
+  onArchiveConversation: (conversationId: string) => void;
   /** Drawer mode on small screens: always expanded, no collapse control. */
   variant?: "rail" | "drawer";
 }
 
 export function Rail({
-  threads,
-  activeThreadId,
+  conversations,
+  conversationsFailed,
+  activeConversationId,
   health,
   expanded,
   onExpandedChange,
   onNewAnalysis,
-  onSelectThread,
-  onDeleteThread,
+  onSelectConversation,
+  onArchiveConversation,
   variant = "rail",
 }: RailProps) {
   const isDrawer = variant === "drawer";
   const pathname = usePathname();
   const open = isDrawer || expanded;
-  const groups = groupThreads(threads);
+  const groups = groupConversations(conversations);
 
   return (
     <motion.div
@@ -245,9 +251,9 @@ export function Rail({
         </ul>
       </nav>
 
-      {/* Recent analyses */}
+      {/* Conversations */}
       <nav
-        aria-label="Recent analyses"
+        aria-label="Conversations"
         className={cn(
           "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2",
           open ? "" : "pointer-events-none opacity-0",
@@ -256,7 +262,9 @@ export function Rail({
       >
         {groups.length === 0 ? (
           <p className="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
-            Recent analyses appear here. They are kept in this browser only.
+            {conversationsFailed
+              ? "Conversation history could not be loaded."
+              : "Your conversations appear here once you ask a question."}
           </p>
         ) : (
           groups.map((group) => (
@@ -265,15 +273,15 @@ export function Rail({
                 {group.label}
               </h2>
               <ul className="space-y-px">
-                {group.threads.map((thread) => {
-                  const active = thread.threadId === activeThreadId;
+                {group.conversations.map((conversation) => {
+                  const active = conversation.id === activeConversationId;
                   return (
-                    <li key={thread.threadId} className="group/thread relative">
+                    <li key={conversation.id} className="group/thread relative">
                       <button
                         type="button"
-                        onClick={() => onSelectThread(thread.threadId)}
+                        onClick={() => onSelectConversation(conversation.id)}
                         aria-current={active ? "true" : undefined}
-                        title={thread.title}
+                        title={conversation.title}
                         className={cn(
                           "relative flex w-full items-center rounded-md py-1.5 pe-7 ps-2.5 text-start text-[13px] transition-colors",
                           active
@@ -290,17 +298,17 @@ export function Rail({
                           />
                         ) : null}
                         <span dir="auto" className="min-w-0 flex-1 truncate">
-                          {thread.title}
+                          {conversation.title}
                         </span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => onDeleteThread(thread.threadId)}
+                        onClick={() => onArchiveConversation(conversation.id)}
                         className="absolute end-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-all hover:bg-background hover:text-destructive focus-visible:opacity-100 group-hover/thread:opacity-100"
                       >
                         <Trash2 className="size-3.5" aria-hidden="true" />
                         <span className="sr-only">
-                          Remove {thread.title} from this list
+                          Archive {conversation.title}
                         </span>
                       </button>
                     </li>

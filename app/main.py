@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
+from app.api.conversation_routes import router as conversation_router
 from app.api.evaluation_routes import router as evaluation_router
 from app.api.knowledge_routes import router as knowledge_router
 from app.api.quality_routes import router as quality_router
@@ -127,6 +128,7 @@ def create_app() -> FastAPI:
     app.include_router(evaluation_router)
     app.include_router(quality_router)
     app.include_router(time_router)
+    app.include_router(conversation_router)
     return app
 
 

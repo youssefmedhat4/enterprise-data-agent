@@ -21,14 +21,10 @@ import { useConversation } from "@/hooks/use-conversation";
 import { useHealth } from "@/hooks/use-health";
 import { consoleRise, DUR, EASE_OUT, shellFade } from "@/lib/motion";
 import {
-  deriveTitle,
-  loadThreads,
-  removeThread,
-  saveThreads,
-  upsertThread,
-  type ThreadSummary,
-} from "@/lib/threads/storage";
-import { clearTranscript } from "@/lib/threads/transcript";
+  archiveConversation,
+  fetchConversations,
+  type ConversationSummary,
+} from "@/lib/conversations/api";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
 import {
   DEFAULT_MODEL_PROFILE,
@@ -38,6 +34,15 @@ import {
 
 const MODEL_PROFILE_STORAGE_KEY = "eda.model-profile:v1";
 const DATA_SOURCE_STORAGE_KEY = "eda.data-source:v1";
+/**
+ * Which conversation is open — an id, never its contents.
+ *
+ * Leaving for the knowledge area and coming back remounts this component, and
+ * without a pointer the reader lands on the console home wondering where their
+ * analysis went. The transcript itself is still fetched from the server every
+ * time; this only records which one to ask for.
+ */
+const OPEN_CONVERSATION_STORAGE_KEY = "eda.conversation:v1";
 
 /**
  * The workspace shell.
@@ -52,7 +57,7 @@ const DATA_SOURCE_STORAGE_KEY = "eda.data-source:v1";
  * API layer via the hooks.
  */
 export function Workspace() {
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [railExpanded, setRailExpanded] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detailsFor, setDetailsFor] = useState<AnalyticsResponse | null>(null);
@@ -67,11 +72,31 @@ export function Workspace() {
     DEFAULT_DATA_SOURCE_ID,
   );
 
+  const [conversationsFailed, setConversationsFailed] = useState(false);
+
+  // Set once the hook exists, so `onThreadEstablished` can reach it without
+  // the two definitions depending on each other.
+  const adoptRef = useRef<((conversationId: string) => void) | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   const health = useHealth();
 
-  // localStorage is unavailable during SSR; hydrate after mount.
-  useEffect(() => setThreads(loadThreads()), []);
+  const loadConversations = useCallback(async () => {
+    try {
+      const listed = await fetchConversations();
+      setConversations(listed);
+      return listed;
+    } catch {
+      // History is unavailable. Asking a new question still works, and the
+      // sidebar says the list could not be loaded rather than claiming empty.
+      setConversationsFailed(true);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConversations();
+  }, [loadConversations]);
+
   useEffect(() => {
     const stored = sessionStorage.getItem(MODEL_PROFILE_STORAGE_KEY);
     if (isModelProfile(stored)) setModelProfile(stored);
@@ -108,30 +133,69 @@ export function Workspace() {
     sessionStorage.setItem(MODEL_PROFILE_STORAGE_KEY, profile);
   }, []);
 
+  // The server creates the conversation as part of answering, so the sidebar
+  // is refreshed from it rather than guessing what it now contains. The new
+  // row is matched by thread, which is the stable link between the analytical
+  // context and the transcript that records it.
   const onThreadEstablished = useCallback(
-    (threadId: string, question: string) => {
-      setThreads((current) => {
-        const next = upsertThread(current, {
-          threadId,
-          title: deriveTitle(question),
-        });
-        saveThreads(next);
-        return next;
-      });
+    (establishedThreadId: string) => {
+      void (async () => {
+        const listed = await loadConversations();
+        const created = listed.find(
+          (conversation) => conversation.threadId === establishedThreadId,
+        );
+        if (created === undefined) return;
+        adoptRef.current?.(created.id);
+        sessionStorage.setItem(OPEN_CONVERSATION_STORAGE_KEY, created.id);
+      })();
     },
-    [],
+    [loadConversations],
   );
 
   const {
     exchanges,
     threadId,
+    conversationId,
     isBusy,
+    isRestoring,
+    restoreNotice,
     ask,
     retry,
     cancel,
     startNewAnalysis,
-    resumeThread,
+    openConversation,
+    adoptConversation,
   } = useConversation({ onThreadEstablished });
+
+  adoptRef.current = adoptConversation;
+
+  /**
+   * Open a conversation and follow it to its database.
+   *
+   * A conversation belongs to one datasource. Restoring the transcript without
+   * also selecting that datasource would leave the composer pointed somewhere
+   * else, and the next follow-up would run against a database this thread has
+   * never touched.
+   */
+  const restoreConversation = useCallback(
+    async (nextConversationId: string) => {
+      const source = await openConversation(nextConversationId);
+      if (source === null || source === "") return;
+      setDataSourceId(source);
+      sessionStorage.setItem(DATA_SOURCE_STORAGE_KEY, source);
+    },
+    [openConversation],
+  );
+
+  // Reopen whatever was open before this component last unmounted — leaving
+  // for the knowledge area and coming back should not look like the analysis
+  // was thrown away. The transcript is fetched from the server either way.
+  useEffect(() => {
+    const open = sessionStorage.getItem(OPEN_CONVERSATION_STORAGE_KEY);
+    if (open !== null && open !== "") void restoreConversation(open);
+    // Once, on mount: re-running would clobber a conversation opened since.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openDetails = useCallback((response: AnalyticsResponse) => {
     setDetailsFor(response);
@@ -139,33 +203,40 @@ export function Workspace() {
   }, []);
 
   const handleNewAnalysis = useCallback(() => {
+    sessionStorage.removeItem(OPEN_CONVERSATION_STORAGE_KEY);
     startNewAnalysis();
     setDrawerOpen(false);
     composerRef.current?.focus();
   }, [startNewAnalysis]);
 
-  const handleSelectThread = useCallback(
-    (nextThreadId: string) => {
-      resumeThread(nextThreadId);
+  const handleSelectConversation = useCallback(
+    (nextConversationId: string) => {
+      sessionStorage.setItem(
+        OPEN_CONVERSATION_STORAGE_KEY,
+        nextConversationId,
+      );
+      void restoreConversation(nextConversationId);
       setDrawerOpen(false);
       composerRef.current?.focus();
     },
-    [resumeThread],
+    [restoreConversation],
   );
 
-  const handleDeleteThread = useCallback(
-    (target: string) => {
-      setThreads((current) => {
-        const next = removeThread(current, target);
-        saveThreads(next);
-        return next;
-      });
-      // Removing a thread from the list must also drop its stored results,
-      // otherwise deleted analyses linger in session storage.
-      clearTranscript(target);
-      if (target === threadId) startNewAnalysis();
+  const handleArchiveConversation = useCallback(
+    async (target: string) => {
+      // Optimistic, because the row disappearing is the whole feedback. A
+      // failure puts it back by reloading the authoritative list.
+      setConversations((current) =>
+        current.filter((conversation) => conversation.id !== target),
+      );
+      if (target === conversationId) startNewAnalysis();
+      try {
+        await archiveConversation(target);
+      } finally {
+        await loadConversations();
+      }
     },
-    [threadId, startNewAnalysis],
+    [conversationId, loadConversations, startNewAnalysis],
   );
 
   const handleAsk = useCallback(
@@ -186,17 +257,24 @@ export function Workspace() {
     [dataSourceId, startNewAnalysis],
   );
 
-  const isResumed = threadId !== null && exchanges.length === 0;
-  const isConsole = exchanges.length === 0 && !isResumed;
+  // A conversation is open as soon as one is selected, even before its
+  // transcript arrives — otherwise restoring flashes the console home.
+  const isConsole =
+    exchanges.length === 0 &&
+    !isRestoring &&
+    conversationId === null &&
+    threadId === null;
   const offline = health.status === "offline";
 
   const railProps = {
-    threads,
-    activeThreadId: threadId,
+    conversations,
+    conversationsFailed,
+    activeConversationId: conversationId,
     health,
     onNewAnalysis: handleNewAnalysis,
-    onSelectThread: handleSelectThread,
-    onDeleteThread: handleDeleteThread,
+    onSelectConversation: handleSelectConversation,
+    onArchiveConversation: (target: string) =>
+      void handleArchiveConversation(target),
   };
 
   return (
@@ -291,10 +369,11 @@ export function Workspace() {
                 className="min-h-0 flex-1 overflow-y-auto"
               >
                 <div className="mx-auto w-full max-w-[58rem] px-5 py-10 sm:px-8">
-                  {isResumed ? (
+                  {isRestoring ? <TranscriptSkeleton /> : null}
+
+                  {restoreNotice !== null ? (
                     <p className="rounded-lg border border-dashed border-border px-4 py-3 text-[13px] text-muted-foreground">
-                      Continuing an earlier analysis. Its context lives on the
-                      server — ask a follow-up to pick up where you left off.
+                      {restoreNotice}
                     </p>
                   ) : null}
 
@@ -356,5 +435,27 @@ export function Workspace() {
         onOpenChange={setDetailsOpen}
       />
     </motion.div>
+  );
+}
+
+/**
+ * Placeholder turns while a stored transcript loads.
+ *
+ * Restoring reads rows rather than calling a model, so this is brief — but a
+ * blank flash followed by content jumping in reads as a bug, and the shapes
+ * here match the exchanges that replace them.
+ */
+function TranscriptSkeleton() {
+  return (
+    <div aria-hidden="true" className="space-y-8">
+      {[0, 1].map((index) => (
+        <div key={index} className="space-y-3">
+          <div className="h-4 w-2/5 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-full animate-pulse rounded bg-muted/70" />
+          <div className="h-3 w-4/5 animate-pulse rounded bg-muted/70" />
+          <div className="h-28 w-full animate-pulse rounded-lg bg-muted/50" />
+        </div>
+      ))}
+    </div>
   );
 }

@@ -4,9 +4,16 @@ import { useCallback, useRef, useState } from "react";
 
 import { postAnalyticsQuery } from "@/lib/api/analytics";
 import { ApiError } from "@/lib/api/client";
-import { loadTranscript, saveTranscript } from "@/lib/threads/transcript";
+import {
+  fetchConversation,
+  type ConversationMessage,
+} from "@/lib/conversations/api";
 import type { AnalyticsResponse } from "@/lib/types/analytics";
-import type { ModelProfile } from "@/lib/models/profiles";
+import {
+  DEFAULT_MODEL_PROFILE,
+  isModelProfile,
+  type ModelProfile,
+} from "@/lib/models/profiles";
 
 export interface ExchangeFailure {
   code: string;
@@ -61,7 +68,13 @@ function toFailure(cause: unknown): ExchangeFailure {
 export interface UseConversationResult {
   exchanges: Exchange[];
   threadId: string | null;
+  /** The persisted conversation this thread belongs to, once one exists. */
+  conversationId: string | null;
   isBusy: boolean;
+  /** A stored transcript is being fetched; the ledger shows placeholders. */
+  isRestoring: boolean;
+  /** Set when a conversation predates persisted history, or could not load. */
+  restoreNotice: string | null;
   ask: (
     question: string,
     modelProfile: ModelProfile,
@@ -70,7 +83,70 @@ export interface UseConversationResult {
   retry: (exchangeId: string) => Promise<void>;
   cancel: () => void;
   startNewAnalysis: () => void;
-  resumeThread: (threadId: string) => void;
+  /**
+   * Reopen a stored conversation, reporting which database it belongs to.
+   *
+   * The caller needs that: a restored Legacy ERP transcript above a composer
+   * still pointed at Company Analytics would send the next follow-up to the
+   * wrong database while continuing the first one's analytical context.
+   */
+  openConversation: (conversationId: string) => Promise<string | null>;
+  /**
+   * Attach to the conversation the server created while answering.
+   *
+   * The first turn of a new chat mints the conversation server-side, so the
+   * client learns its id only by looking it up afterwards. Adopting it means a
+   * later reload knows which transcript to ask for.
+   */
+  adoptConversation: (conversationId: string) => void;
+}
+
+/**
+ * Turn a stored transcript back into the exchanges the ledger renders.
+ *
+ * Messages arrive as an ordered sequence of user and assistant turns. They are
+ * paired here rather than stored pre-paired, because a question whose answer
+ * never landed is a real state the transcript has to be able to express.
+ */
+function toExchanges(
+  messages: readonly ConversationMessage[],
+  dataSourceId: string,
+): Exchange[] {
+  const restored: Exchange[] = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      restored.push({
+        id: message.id,
+        question: message.content,
+        askedAt: message.createdAt,
+        modelProfile: DEFAULT_MODEL_PROFILE,
+        dataSourceId,
+        state: "failed",
+        error: {
+          code: "history_incomplete",
+          message: "This question has no recorded answer.",
+          requestId: null,
+          retryable: true,
+        },
+      });
+      continue;
+    }
+    const open = restored.at(-1);
+    if (open === undefined || open.state !== "failed") continue;
+    const response = message.response;
+    restored[restored.length - 1] = {
+      ...open,
+      state: response === null ? "failed" : "answered",
+      response: response ?? undefined,
+      error: response === null ? open.error : undefined,
+      modelProfile:
+        response !== null && isModelProfile(response.model_profile)
+          ? response.model_profile
+          : open.modelProfile,
+      dataSourceId: response?.data_source_id ?? open.dataSourceId,
+    };
+  }
+  return restored;
 }
 
 export function useConversation(options: {
@@ -80,7 +156,10 @@ export function useConversation(options: {
 
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
 
   // The in-flight request, so the user can stop it.
   const abortRef = useRef<AbortController | null>(null);
@@ -120,22 +199,18 @@ export function useConversation(options: {
           onThreadEstablished(response.thread_id, question);
         }
 
-        setExchanges((current) => {
-          const next = current.map((exchange) =>
+        setExchanges((current) =>
+          current.map((exchange) =>
             exchange.id === exchangeId
               ? ({ ...exchange, state: "answered", response, error: undefined } as Exchange)
               : exchange,
-          );
-          // Persist against the id the server just confirmed, so the very first
-          // turn lands under the right thread rather than under `null`.
-          saveTranscript(response.thread_id, next);
-          return next;
-        });
+          ),
+        );
       } catch (cause) {
         const failure = toFailure(cause);
         const cancelled = failure.code === "request_cancelled";
-        setExchanges((current) => {
-          const next = current.map((exchange) =>
+        setExchanges((current) =>
+          current.map((exchange) =>
             exchange.id === exchangeId
               ? ({
                   ...exchange,
@@ -143,10 +218,8 @@ export function useConversation(options: {
                   error: cancelled ? undefined : failure,
                 } as Exchange)
               : exchange,
-          );
-          saveTranscript(threadRef.current, next);
-          return next;
-        });
+          ),
+        );
       } finally {
         abortRef.current = null;
         setPendingId((current) => (current === exchangeId ? null : current));
@@ -204,37 +277,82 @@ export function useConversation(options: {
     abortRef.current?.abort();
   }, []);
 
+  /**
+   * Start over.
+   *
+   * Clearing the thread reference is the whole point: the next question mints
+   * a new thread key server-side, so a new chat cannot silently continue the
+   * previous conversation's analytical context.
+   */
   const startNewAnalysis = useCallback(() => {
     abortRef.current?.abort();
     threadRef.current = null;
     setThreadId(null);
+    setConversationId(null);
     setExchanges([]);
     setPendingId(null);
+    setRestoreNotice(null);
+    setIsRestoring(false);
   }, []);
 
   /**
-   * Reopen an existing server-side thread.
+   * Reopen a stored conversation.
    *
-   * LangGraph holds the authoritative analytical context; this restores the
-   * locally recorded transcript so the thread reads as it did when the user
-   * left it, instead of coming back blank.
+   * The transcript comes from the server, which is the only copy that survives
+   * a closed tab or a restarted process. Its thread id comes back with it, so
+   * the follow-up the user types next continues the same analytical context
+   * that produced the history they are looking at.
    */
-  const resumeThread = useCallback((nextThreadId: string) => {
+  const openConversation = useCallback(async (nextConversationId: string) => {
     abortRef.current?.abort();
-    threadRef.current = nextThreadId;
-    setThreadId(nextThreadId);
-    setExchanges(loadTranscript(nextThreadId));
     setPendingId(null);
+    setConversationId(nextConversationId);
+    setIsRestoring(true);
+    setRestoreNotice(null);
+    setExchanges([]);
+    try {
+      const conversation = await fetchConversation(nextConversationId);
+      if (conversation === null) {
+        setRestoreNotice("This conversation could not be opened.");
+        return null;
+      }
+      threadRef.current = conversation.threadId;
+      setThreadId(conversation.threadId);
+      setExchanges(toExchanges(conversation.messages, conversation.dataSourceId));
+      if (conversation.messages.length === 0) {
+        // Threads started before transcripts were persisted have analytical
+        // context but nothing to show. Saying so is better than inventing
+        // messages from what the learning store happens to remember.
+        setRestoreNotice(
+          "Analysis context is available, but this conversation was created " +
+            "before chat history was persisted.",
+        );
+      }
+      return conversation.dataSourceId;
+    } catch {
+      setRestoreNotice("This conversation's history could not be loaded.");
+      return null;
+    } finally {
+      setIsRestoring(false);
+    }
+  }, []);
+
+  const adoptConversation = useCallback((nextConversationId: string) => {
+    setConversationId(nextConversationId);
   }, []);
 
   return {
     exchanges,
     threadId,
+    conversationId,
     isBusy,
+    isRestoring,
+    restoreNotice,
     ask,
     retry,
     cancel,
     startNewAnalysis,
-    resumeThread,
+    openConversation,
+    adoptConversation,
   };
 }

@@ -23,6 +23,10 @@ from uuid import UUID
 from app.config import Settings
 from app.embeddings.factory import build_embedding_gateway
 from app.knowledge.candidates import InMemoryCandidateStore
+from app.knowledge.conversations import (
+    ConversationStore,
+    InMemoryConversationStore,
+)
 from app.knowledge.database import KnowledgeDatabase, KnowledgeDatabaseError
 from app.knowledge.datasources import PostgresDataSourceRegistry
 from app.knowledge.evaluation import (
@@ -43,6 +47,7 @@ from app.knowledge.learned import (
 from app.knowledge.memory import InMemoryQuestionMemory
 from app.knowledge.metrics import InMemoryMetricRegistry, MetricRegistry
 from app.knowledge.postgres_candidates import PostgresCandidateStore
+from app.knowledge.postgres_conversations import PostgresConversationStore
 from app.knowledge.postgres_evaluation import PostgresEvaluationStore
 from app.knowledge.postgres_evidence import PostgresExecutionEvidenceStore
 from app.knowledge.postgres_guidance import PostgresGuidanceStore
@@ -110,6 +115,10 @@ class KnowledgeRuntime:
     learned: LearnedKnowledgeStore | None
     #: One datasource's calendar and the columns that carry time.
     time_intelligence: TimeIntelligenceStore | None
+    #: What was actually said, per conversation. A product transcript, kept
+    #: apart from `memory`, which learns from question shapes and stores no
+    #: answers, and from the checkpointer, which holds reasoning state.
+    conversations: ConversationStore | None
     data_sources: Any | None
     execution: Any | None
     retriever: MetricRetriever
@@ -192,6 +201,7 @@ async def build_knowledge_runtime(
         quality=PostgresQualityStore(pool),
         learned=PostgresLearnedKnowledgeStore(pool),
         time_intelligence=PostgresTimeIntelligenceStore(pool),
+        conversations=PostgresConversationStore(pool),
         data_sources=sources,
         execution=DataSourceRuntimeProvider(settings, registry=sources),
         retriever=retriever,
@@ -222,6 +232,7 @@ async def _in_memory_runtime(
         quality=InMemoryQualityStore(),
         learned=InMemoryLearnedKnowledgeStore(),
         time_intelligence=InMemoryTimeIntelligenceStore(),
+        conversations=InMemoryConversationStore(),
         data_sources=None,
         execution=None,
         retriever=retriever,

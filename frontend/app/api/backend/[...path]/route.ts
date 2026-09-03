@@ -15,6 +15,7 @@ const BACKEND_ORIGIN = (
 /** Only these paths are proxied. The route is not an open relay. */
 const ALLOWED_PATHS = [
   "analytics/query",
+  "conversations",
   "health",
   "health/live",
   "health/ready",
@@ -34,6 +35,9 @@ const ID = "[0-9a-f-]{36}";
  * as the rest — without an entry the browser gets a 404 from this route and the
  * section reports the service as unavailable, however healthy the backend is.
  */
+/** One stored conversation: read its transcript, rename it, archive it. */
+const CONVERSATION_PATHS = [new RegExp(`^conversations/${ID}$`)];
+
 const KNOWLEDGE_PATHS = [
   `knowledge/data-sources`,
   `knowledge/data-sources/${ID}/(semantics|clusters|candidates|metrics|examples|instructions|scan|reindex)`,
@@ -51,6 +55,7 @@ const KNOWLEDGE_PATHS = [
 function isAllowed(target: string): boolean {
   return (
     ALLOWED_PATHS.includes(target) ||
+    CONVERSATION_PATHS.some((pattern) => pattern.test(target)) ||
     KNOWLEDGE_PATHS.some((pattern) => pattern.test(target))
   );
 }
@@ -150,3 +155,7 @@ export const POST = proxy;
 // Confirming a calendar and archiving an evaluation case are both PUTs. Without
 // this the browser gets a 405 and the reviewer's decision silently never lands.
 export const PUT = proxy;
+// Renaming and archiving a conversation. The allowlist above still decides
+// which paths these may reach.
+export const PATCH = proxy;
+export const DELETE = proxy;

@@ -47,6 +47,11 @@ from app.data.gateway import DatabaseGateway, DatabaseUnavailableError
 from app.errors import ApplicationError, ErrorCode, ErrorResponse, normalize_error
 from app.governance.factory import build_governance_gateway
 from app.governance.gateway import GovernanceGateway
+from app.knowledge.conversations import (
+    Conversation,
+    ConversationStore,
+    derive_title,
+)
 from app.knowledge.execution import DataSourceUnavailableError
 from app.knowledge.factory import build_metric_intent_planner
 from app.knowledge.quality import relevant_to
@@ -787,6 +792,93 @@ def _temporal_table_scope(
     return wanted or available
 
 
+def _transcript_payload(response: AnalyticsResponse) -> dict[str, Any]:
+    """What a past answer needs to be redrawn, and nothing more.
+
+    Two things are removed rather than stored. The generated SQL appears in a
+    live response only when the authorization decision allowed debug detail for
+    *that* request; keeping it would let a restored transcript show what a
+    fresh answer might not, long after the policy that permitted it changed.
+    Row volume is capped by the store, which records that it truncated.
+
+    Everything else is the same public view the browser already received, so a
+    restored turn renders identically to the one that was answered.
+    """
+    payload = response.model_dump(mode="json")
+    payload.pop("request_id", None)
+    provenance = payload.get("provenance")
+    if isinstance(provenance, dict):
+        provenance["debug"] = None
+    trace = payload.get("trace")
+    if isinstance(trace, dict):
+        trace["generated_sql"] = None
+    return payload
+
+
+async def _record_conversation_turn(
+    knowledge: KnowledgeRuntime,
+    *,
+    identity: UserIdentity,
+    response: AnalyticsResponse,
+    question: str,
+    data_source_id: UUID,
+) -> bool:
+    """Persist one question and its answer. Reports whether it was stored.
+
+    The caller surfaces a failure rather than swallowing it: an answer on
+    screen that no transcript records is exactly the disappearing history this
+    storage exists to prevent, and silently losing it is worse than saying so.
+
+    Nothing is written to question memory here. That store learns from question
+    *shapes* and holds no answers; a transcript is a different concern with a
+    different lifetime.
+    """
+    store: ConversationStore | None = knowledge.conversations
+    if store is None:
+        return False
+    try:
+        conversation = await store.by_thread(response.thread_id)
+        if conversation is None:
+            conversation = await store.create(
+                Conversation(
+                    owner_subject_id=identity.subject_id,
+                    data_source_id=data_source_id,
+                    thread_id=response.thread_id,
+                    title=derive_title(question),
+                )
+            )
+            logger.info(
+                "conversation_created",
+                extra={"conversation_id": str(conversation.id)},
+            )
+        if conversation.owner_subject_id != identity.subject_id:
+            # A thread key belonging to someone else. Appending would put this
+            # subject's question into another person's transcript.
+            logger.warning("conversation_owner_mismatch")
+            return False
+        if conversation.data_source_id != data_source_id:
+            # A thread is scoped to one database. Recording a turn answered
+            # from another under it would make the transcript claim a lineage
+            # the answer never had.
+            logger.warning("conversation_datasource_mismatch")
+            return False
+        await store.append_turn(
+            conversation,
+            question=question,
+            answer=response.answer,
+            payload=_transcript_payload(response),
+            request_id=response.request_id,
+        )
+        logger.info(
+            "message_persisted",
+            extra={"conversation_id": str(conversation.id)},
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - storage failure path
+        logger.warning("history_persist_failed: %s", type(exc).__name__)
+        return False
+
+
 @router.post(
     "/analytics/query",
     response_model=AnalyticsResponse,
@@ -1041,7 +1133,7 @@ async def query_analytics(
         knowledge, active_data_source_id, internal_provenance.tables
     )
     execution = result["execution_metadata"]
-    return AnalyticsResponse(
+    response = AnalyticsResponse(
         request_id=request_id,
         thread_id=thread_id,
         model_profile=selected_model_profile.profile,
@@ -1081,3 +1173,25 @@ async def query_analytics(
         warnings=result.get("warnings", []),
         execution=execution,
     )
+
+    # The transcript is written after the answer exists, so a failure here
+    # never costs the user their answer -- but it is reported rather than
+    # hidden, because history that silently did not save is the bug this
+    # storage was added to fix.
+    if not await _record_conversation_turn(
+        knowledge,
+        identity=identity,
+        response=response,
+        question=request.question,
+        data_source_id=active_data_source_id,
+    ):
+        return response.model_copy(
+            update={
+                "warnings": [
+                    *response.warnings,
+                    "This answer could not be saved to your conversation "
+                    "history and may not appear when you return.",
+                ]
+            }
+        )
+    return response
