@@ -11,13 +11,8 @@ from app.data.postgres import PostgresDatabaseGateway
 from app.evals.deterministic_llm import DeterministicEvaluationLLM
 from app.evals.duckdb_gateway import DuckDBEvaluationGateway
 from app.evals.loader import load_evaluation_cases
-from app.evals.models import EvaluationMode, EvaluationResult, EvaluationSummary
-from app.evals.report import (
-    render_cerebras_comparison,
-    render_cloud_comparison,
-    render_groq_qwen_comparison,
-    render_local_sql_baseline,
-)
+from app.evals.models import EvaluationMode, EvaluationResult
+from app.evals.report import render_cloud_comparison, render_local_sql_baseline
 from app.evals.runner import BackendName, build_fake_database_factory, run_evaluations
 from app.llm.factory import build_llm_gateway
 from app.llm.gateway import LLMGateway
@@ -39,8 +34,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--comparison-output", type=Path)
     parser.add_argument("--markdown-output", type=Path)
     parser.add_argument("--request-delay-seconds", type=float)
-    parser.add_argument("--reference-report", type=Path)
-    parser.add_argument("--secondary-reference-report", type=Path)
     parser.add_argument(
         "--case-id",
         action="append",
@@ -59,8 +52,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.comparison_output,
                 args.markdown_output,
                 args.request_delay_seconds,
-                args.reference_report,
-                args.secondary_reference_report,
                 args.case_id,
             )
         )
@@ -78,8 +69,6 @@ async def _run(
     comparison_output_path: Path | None,
     markdown_output_path: Path | None,
     request_delay_seconds: float | None,
-    reference_report_path: Path | None,
-    secondary_reference_report_path: Path | None,
     case_ids: list[str],
 ) -> int:
     settings = Settings()
@@ -170,43 +159,8 @@ async def _run(
         )
     if markdown_output_path is not None:
         markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
-        markdown = render_local_sql_baseline(summary)
-        if reference_report_path is not None:
-            reference = EvaluationSummary.model_validate_json(
-                reference_report_path.read_text(encoding="utf-8")
-            )
-            if reference.dataset_sha256 != summary.dataset_sha256:
-                raise EvaluationConfigurationError(
-                    "Reference and candidate reports use different evaluation datasets."
-                )
-            schema_database = DuckDBEvaluationGateway()
-            try:
-                schema = await schema_database.search_schema("")
-            finally:
-                await schema_database.close()
-            if "cerebras" in summary.performance.provider_calls or any(
-                model.startswith("cerebras/") for model in summary.configured_models.values()
-            ):
-                secondary = None
-                if secondary_reference_report_path is not None:
-                    secondary = EvaluationSummary.model_validate_json(
-                        secondary_reference_report_path.read_text(encoding="utf-8")
-                    )
-                    if secondary.dataset_sha256 != summary.dataset_sha256:
-                        raise EvaluationConfigurationError(
-                            "Secondary reference and candidate reports use different "
-                            "evaluation datasets."
-                        )
-                markdown = render_cerebras_comparison(
-                    reference,
-                    secondary,
-                    summary,
-                    schema=schema,
-                )
-            else:
-                markdown = render_groq_qwen_comparison(reference, summary, schema=schema)
         markdown_output_path.write_text(
-            markdown,
+            render_local_sql_baseline(summary),
             encoding="utf-8",
         )
     return 0 if summary.failed_cases == 0 else 1

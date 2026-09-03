@@ -167,7 +167,7 @@ export interface ExecutionMetadata {
   live: boolean;
 }
 
-/** `AnalyticsResponse`, schema version 1.0. */
+/** `AnalyticsResponse`, schema version 1.1. */
 export interface AnalyticsResponse {
   schema_version: "1.1";
   request_id: string;

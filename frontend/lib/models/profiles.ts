@@ -2,8 +2,7 @@
  * Model profiles the UI may offer.
  *
  * The browser sends only these bounded profile names; the backend owns every
- * provider, model string, and credential. `qwen` remains a valid backend
- * profile for existing deployments but is deliberately not offered here.
+ * provider, model string, and credential.
  */
 export type ModelProfile = "gemini_pro" | "gemini";
 

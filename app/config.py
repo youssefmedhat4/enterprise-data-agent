@@ -251,14 +251,6 @@ class Settings(BaseSettings):
         alias="LLM_MODEL_ANALYTICS_GENERAL",
     )
     llm_model_sql_reasoner: str = Field(default="fake/sql-reasoner", alias="LLM_MODEL_SQL_REASONER")
-    llm_model_qwen_analytics_general: str | None = Field(
-        default=None,
-        alias="LLM_MODEL_QWEN_ANALYTICS_GENERAL",
-    )
-    llm_model_qwen_sql_reasoner: str | None = Field(
-        default=None,
-        alias="LLM_MODEL_QWEN_SQL_REASONER",
-    )
     llm_model_gemini_analytics_general: str = Field(
         default="vertex_ai/gemini-2.5-flash",
         alias="LLM_MODEL_GEMINI_ANALYTICS_GENERAL",
@@ -581,18 +573,7 @@ class Settings(BaseSettings):
         )
 
     def resolve_model_profile(self, profile: ModelProfile) -> ResolvedModelProfile:
-        if profile == "qwen":
-            aliases = {
-                "analytics-general": (
-                    self.llm_model_qwen_analytics_general
-                    or self.llm_model_analytics_general
-                ),
-                "sql-reasoner": (
-                    self.llm_model_qwen_sql_reasoner or self.llm_model_sql_reasoner
-                ),
-            }
-            vertex_location = self.vertex_ai_location
-        elif profile == "gemini_pro":
+        if profile == "gemini_pro":
             aliases = {
                 "analytics-general": self.llm_model_gemini_pro_analytics_general,
                 "sql-reasoner": self.llm_model_gemini_pro_sql_reasoner,
@@ -657,14 +638,6 @@ class Settings(BaseSettings):
                     "vertex_project": self.vertex_ai_project,
                     "vertex_location": vertex_location,
                 }
-                if self.is_vertex_openai_endpoint(model):
-                    # Qwen3.6 is a reasoning model: by default it emits a thinking
-                    # trace before the answer, which is not valid JSON and breaks
-                    # every structured response. Turning thinking off at the chat
-                    # template is what makes `response_format` usable at all.
-                    options[alias]["extra_body"] = {
-                        "chat_template_kwargs": {"enable_thinking": False}
-                    }
         return options
 
     def _api_keys_for_aliases(self, aliases: dict[str, str]) -> dict[str, str]:
@@ -691,16 +664,6 @@ class Settings(BaseSettings):
             for alias, model in aliases.items()
             if self.model_provider(model) in {"groq", "zai"}
         }
-
-    @staticmethod
-    def is_vertex_openai_endpoint(model: str) -> bool:
-        """True for a self-hosted Model Garden endpoint served over the OpenAI API.
-
-        Distinguishes `vertex_ai/openai/<endpoint id>` (our own vLLM deployment)
-        from a managed Vertex model such as `vertex_ai/gemini-2.5-flash`, which
-        would reject vLLM-specific request options.
-        """
-        return model.lower().startswith("vertex_ai/openai/")
 
     @property
     def structured_output_modes_by_alias(
