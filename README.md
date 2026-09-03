@@ -65,7 +65,7 @@ flowchart TD
     VAL --> DB --> OUT --> UI
 ```
 
-Major components remain replaceable behind typed gateways. LangGraph does not depend directly on a particular model provider, database transport, semantic service, or authorization engine.
+Every major component — model provider, database, semantic layer, authorization — is swappable without changing the core orchestration.
 
 ## How A Question Is Answered
 
@@ -90,11 +90,11 @@ No cached answer or remembered number replaces the live database result.
 
 Questions that map to certified business metrics follow the governed path. Current metrics include Active Headcount, Annual Base Payroll, Net Payroll, Invoice Amount, Project Cost, Project Margin, and Budget Utilization.
 
-The metric definition owns the approved formula, dimensions, filters, null behavior, and time behavior. Wren is the default governed metric provider; Cube remains available as a selectable implementation.
+The metric definition owns the approved formula, dimensions, filters, null behavior, and time behavior — computed by Wren, the platform's governed metrics engine.
 
 ### Ad-hoc analytics
 
-New analytical questions use confirmed semantics, relevant business rules, approved planning examples, entity resolution, and the configured model through LiteLLM. The model generates fresh SQL for the question; that SQL still has to pass the same authorization and validation boundaries.
+New analytical questions use confirmed semantics, relevant business rules, approved planning examples, entity resolution, and the configured language model. The model generates fresh SQL for the question; that SQL still has to pass the same authorization and validation boundaries.
 
 **Ad-hoc means “generated for this question,” not “uncontrolled.”**
 
@@ -347,7 +347,7 @@ flowchart TD
 - Generated SQL is hidden by default and requires configuration plus policy-granted debug authority.
 - Credentials, prompts containing sensitive data, and result rows are excluded from normal logs and public provenance.
 
-Production authentication uses standards-based OIDC/JWT validation and supports Microsoft Entra ID configuration. Authentication establishes identity; OPA owns authorization. Local identity and policy adapters are explicit development options only.
+Production authentication uses standards-based OIDC/JWT validation, including Microsoft Entra ID; local development uses a simplified identity so the rest of the stack can be exercised without an identity provider.
 
 ## Legacy ERP Stress Test
 
@@ -366,27 +366,21 @@ This fixture demonstrates that semantics, rules, entity resolution, and validati
 
 ## Persistence And Conversation
 
-Approved semantics, metrics, rules, examples, recurring clusters, candidates, evaluations, quality assertions, and time policies are stored in PostgreSQL and survive application restarts.
-
-Conversation state uses a separate PostgreSQL-backed LangGraph checkpoint store and writer identity. Reusing a `thread_id` resumes structured analytical context, including prior metrics, dimensions, filters, time range, and recent turns. It is separate from Question Memory: conversation checkpoints help one thread continue; Question Memory discovers recurring needs across successful requests.
-
-In-memory checkpointing remains available for tests and temporary development but is rejected in staging and production.
+Asking a follow-up continues the same analytical context — prior metrics, filters, time range, and recent turns — instead of starting over. That context, along with all approved knowledge (semantics, metrics, rules, examples, candidates, evaluations, quality checks, and time policies), is stored in PostgreSQL and survives restarts. It's separate from Question Memory, which learns from recurring patterns across requests rather than continuing a single conversation.
 
 ## Technology
 
-| Area | Current implementation |
+| Area | Stack |
 | --- | --- |
-| Web experience | Next.js 15, React 19, TypeScript, Tailwind CSS, Radix UI, Recharts |
-| API and orchestration | Python 3.12+, FastAPI, Pydantic, LangGraph |
-| Models | LiteLLM logical aliases; Gemini 3.1 Pro Preview is the default profile and Gemini 2.5 Flash is selectable |
-| Retrieval | Deterministic local embeddings by default; optional Gemini Embedding 2 |
-| Data | PostgreSQL, direct `DatabaseGateway`; optional MCP Toolbox transport |
-| Analytics knowledge | In-memory or Wren semantics; Wren governed metrics by default, Cube selectable |
-| Safety and identity | SQLGlot, OPA, local development auth, production OIDC/Entra-compatible JWT validation |
-| Governance | Optional OpenMetadata enrichment |
-| Testing | pytest, Vitest, Testing Library, Ruff, mypy, ESLint, TypeScript |
+| Frontend | Next.js, React, TypeScript |
+| Backend | Python, FastAPI, LangGraph |
+| Database | PostgreSQL |
+| AI | Vertex AI / Gemini |
+| Analytics | Wren |
+| Safety | SQLGlot, OPA, read-only database access |
+| Testing | pytest, Vitest |
 
-Model profiles resolve server-side to the logical aliases `analytics-general` and `sql-reasoner`. The physical Google route is configuration-driven, including Vertex AI through Application Default Credentials. Switching a deployment from Vertex AI to an approved local provider does not require LangGraph changes.
+Optional adapters (Cube, MCP Toolbox, OpenMetadata, local-model providers) are documented in [`docs/backend-v1.md`](docs/backend-v1.md).
 
 ## Repository Map
 
@@ -483,10 +477,10 @@ PostgreSQL, Legacy ERP, OPA, Wren, Cube, local-model, and cloud-model tests are 
 
 - One analytical request targets one datasource; cross-database joins are not supported.
 - Reusable business knowledge requires human review before it becomes authoritative.
-- Live Gemini use requires the matching configured Google credentials; Vertex routes use a Google Cloud project and Application Default Credentials. Database-derived cloud context also requires explicit permission.
-- Production Entra tenant consent, claims, and interactive login are deployment-specific; the OIDC validation adapter is implemented.
-- OpenMetadata integration is optional and adapter-tested, but a complete local OpenMetadata deployment is not part of this repository.
-- MCP Toolbox currently targets PostgreSQL connectivity; additional database engines need their own dialect-aware adapters.
+- Live model use requires configured Google credentials; database-derived cloud context also requires explicit permission.
+- Production Entra tenant consent and interactive login are deployment-specific.
+- OpenMetadata integration is optional and adapter-tested, but a complete local deployment is not part of this repository.
+- Additional database engines beyond PostgreSQL need their own adapter.
 - Local Compose is a development environment, not a production high-availability deployment.
 - Full observability infrastructure and production deployment architecture remain outside the current scope.
 
